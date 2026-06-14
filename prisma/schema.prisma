@@ -1,0 +1,44 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+} 
+model User {
+  id       Int    @id @default(autoincrement())
+  name     String
+  email    String @unique
+  password String
+} 
+
+
+model room_players {
+  id        String    @id @db.Uuid
+  room_id   String?   @db.Uuid
+  user_id   String?   @db.Uuid
+  joined_at DateTime? @default(now()) @db.Timestamp(6)
+  rooms     rooms?    @relation(fields: [room_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  users     users?    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+}
+
+model rooms {
+  id           String         @id @db.Uuid
+  room_code    String?        @unique @db.VarChar(10)
+  is_private   Boolean?       @default(false)
+  status       String         @db.VarChar(20)
+  max_players  Int?           @default(8)
+  created_at   DateTime?      @default(now()) @db.Timestamp(6)
+  room_players room_players[]
+}
+
+model users {
+  id            String         @id @db.Uuid
+  username      String         @unique @db.VarChar(30)
+  email         String?        @unique @db.VarChar(255)
+  password_hash String?
+  is_guest      Boolean?       @default(false)
+  created_at    DateTime?      @default(now()) @db.Timestamp(6)
+  room_players  room_players[]
+}
