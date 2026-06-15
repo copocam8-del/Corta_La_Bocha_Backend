@@ -21,83 +21,98 @@ El backend es la única fuente de verdad del juego.
 
 ---
 
-## 2. Estructura General del Proyecto
+## 2. Estructura General del Proyecto (NestJS Backend)
 
+**Nota**: El proyecto utiliza NestJS (TypeScript) para el backend, no Django. La estructura actual refleja esta implementación.
 
+```
 corta-la-bocha/
 
+├── src/
+│ ├── app.module.ts
+│ ├── main.ts
+│ ├── app.controller.ts
+│ ├── app.service.ts
+│ │
+│ ├── auth/
+│ │ ├── auth.controller.ts
+│ │ ├── auth.module.ts
+│ │ ├── auth.service.ts
+│ │ ├── jwt.strategy.ts
+│ │ └── dto/
+│ │
+│ ├── users/
+│ │ ├── users.controller.ts
+│ │ ├── users.module.ts
+│ │ ├── users.service.ts
+│ │ └── dto/
+│ │
+│ ├── prisma/
+│ │ ├── prisma.module.ts
+│ │ └── prisma.service.ts
+│ │
+│ └── tutti-frutti/
+│     ├── tutti-frutti.controller.ts
+│     ├── tutti-frutti.module.ts
+│     ├── tutti-frutti.service.ts
+│     └── dto/
+│         └── validate-round.dto.ts
+│
+├── test/
+│ ├── app.e2e-spec.ts
+│ ├── jest-e2e.json
+│ └── tutti-frutti.e2e-spec.ts
+│
+├── prisma/
+│ ├── schema.prisma
+│ ├── migrations/
+│ └── prisma.config.ts
+│
+├── docs/
+│ ├── ARCHITECTURE.md
+│ ├── API_GUIDELINES.md
+│ ├── FOLDER_STRUCTURE.md
+│ ├── STACK.md
+│ ├── RULES.md
+│ ├── WORKFLOW.md
+│ └── PROJECT_CONTEXT.md
+│
 ├── agents/
 │ ├── ORCHESTRATOR.md
 │ ├── BACKEND_AGENT.md
 │ ├── FRONTEND_AGENT.md
 │ ├── DEVOPS_AGENT.md
 │ ├── QA_AGENT.md
-│ ├── AI_AGENT.md
-│ └── DATA_AGENT.md
+│ └── SECURITY_AGENT.md
 │
-├── docs/
-│ ├── CONTEXT.md
-│ ├── ARCHITECTURE.md
-│ ├── API_GUIDELINES.md
-│ ├── FOLDER_STRUCTURE.md
-│ ├── STACK.md
-│ ├── GAME_RULES.md
-│ ├── DATABASE_SCHEMA.md
-│ ├── SOCKET_EVENTS.md
-│ ├── ROADMAP.md
-│ └── SPRINT_0.md
+├── database/
+│ └── schema.sql
 │
-├── backend/
+├── templates/
+│ ├── ADR_TEMPLATE.md
+│ ├── FEATURE_SPEC_TEMPLATE.md
+│ └── PR_CHECKLIST.md
+│
+├── checklists/
+│ ├── ARCHITECTURE_CHECKLIST.md
+│ └── RELEASE_READINESS_CHECKLIST.md
+│
+├── backend/ (Legacy Django - no activo)
 │ ├── apps/
-│ │ ├── auth/
-│ │ ├── users/
-│ │ ├── tenants/
-│ │ ├── profiles/
-│ │ ├── rooms/
-│ │ ├── matches/
-│ │ ├── rounds/
-│ │ ├── tournaments/
-│ │ ├── rankings/
-│ │ ├── achievements/
-│ │ ├── categories/
-│ │ ├── answers/
-│ │ ├── validation/
-│ │ ├── scoring/
-│ │ ├── football_db/
-│ │ ├── ai/
-│ │ ├── realtime/
-│ │ ├── audit/
-│ │ └── jobs/
-│ │
-│ ├── common/
-│ │ ├── permissions/
-│ │ ├── exceptions/
-│ │ ├── middleware/
-│ │ ├── constants/
-│ │ └── utils/
-│ │
 │ ├── config/
-│ │ ├── settings/
-│ │ ├── asgi.py
-│ │ ├── wsgi.py
-│ │ ├── celery.py
-│ │ └── urls.py
-│ │
-│ ├── tests/
 │ ├── manage.py
 │ └── requirements.txt
 │
-├── frontend/
-│ ├── src/
-│ │ ├── app/
-│ │ ├── features/
-│ │ │ ├── auth/
-│ │ │ ├── rooms/
-│ │ │ ├── matches/
-│ │ │ ├── tournaments/
-│ │ │ ├── rankings/
-│ │ │ ├── profile/
-│ │ │ └── ai/
+├── docker-compose.yml
+├── nest-cli.json
+├── tsconfig.json
+├── tsconfig.build.json
+├── eslint.config.mjs
+├── package.json
+├── package-lock.json
+├── .env.example
+└── README.md
+```
 │ │ │
 │ │ ├── components/
 │ │ ├── hooks/
@@ -131,73 +146,81 @@ corta-la-bocha/
 
 | Carpeta | Responsabilidad | Agente |
 |--------|----------------|--------|
-| agents/ | comportamiento de IA y devs | Orchestrator |
+| src/ | código NestJS (controladores, servicios, módulos) | Backend Agent |
+| test/ | tests unitarios e integración E2E | QA Agent |
+| prisma/ | esquema y migraciones de base de datos | Backend Agent |
 | docs/ | documentación oficial | Orchestrator |
-| backend/ | lógica del juego + IA + tiempo real | Backend Agent |
-| frontend/ | PWA + UI + UX | Frontend Agent |
-| database/ | datos futbolísticos | Data Agent |
-| infrastructure/ | deploy, CI/CD | DevOps Agent |
-| tests/ | calidad del sistema | QA Agent |
+| agents/ | roles y responsabilidades | Orchestrator |
+| database/ | datos/scripts SQL | Data Agent |
+| templates/ | plantillas de ADR, specs, checklists | Orchestrator |
+| docker-compose.yml | orquestación de contenedores | DevOps Agent |
 
 ---
 
-## 4. Estructura de un Dominio Backend
+## 4. Estructura de un Módulo NestJS
 
+### Ejemplo: tutti-frutti/
 
-apps/rooms/
+```
+src/tutti-frutti/
 
-├── models.py
-├── views.py
-├── serializers.py
-├── services.py
-├── selectors.py
-├── permissions.py
-├── consumers.py
-├── urls.py
-├── events.py
-└── tests/
-
-
----
-
-## 5. Responsabilidad de Archivos
-
-### models.py
-- entidades
-- relaciones
-- constraints
-
-❌ sin lógica de negocio
+├── tutti-frutti.controller.ts
+├── tutti-frutti.controller.spec.ts
+├── tutti-frutti.module.ts
+├── tutti-frutti.service.ts
+├── tutti-frutti.service.spec.ts
+└── dto/
+    └── validate-round.dto.ts
+```
 
 ---
 
-### services.py (CORE DEL SISTEMA)
-- reglas del juego
-- scoring
-- validación (con AI + DB)
-- rankings
-- IA
-- torneos
-- matches
+### Responsabilidades por Archivo
+
+#### controller.ts
+- Decoradores HTTP (@Post, @Get, etc.)
+- Parseo de parámetros y body
+- Delegación al servicio
+- Manejo de códigos HTTP
+
+❌ **NO**: lógica de negocio
+
+#### service.ts (CORE)
+- Lógica de negocio
+- Validaciones
+- Cálculos
+- Integraciones con API externas
+- Conexión con repositorios
+
+✅ **SÍ**: toda la complejidad va aquí
+
+#### module.ts
+- Registro de controladores
+- Registro de providers (servicios)
+- Configuración de módulos dependientes
+- Exports de servicios
+
+#### dto/ (Data Transfer Objects)
+- class-validator decoradores
+- class-transformer decoradores
+- Tipado TypeScript
+- Validación de entrada
+
+❌ **NO**: lógica de negocio
+
+#### *.spec.ts
+- Tests unitarios con Jest
+- Mocks de dependencias
+- Cobertura de casos
+
+#### *.e2e-spec.ts
+- Tests de integración
+- Request/Response reales
+- Validación de toda la pila
 
 ---
 
-### views.py
-- endpoints
-- requests / responses
-
-❌ sin lógica de negocio
-
----
-
-### selectors.py
-- queries complejas
-- estadísticas
-- rankings
-
----
-
-### consumers.py
+## 5. Convenciones de Nombres
 - Socket.IO / WebSockets
 - tiempo real
 
