@@ -203,6 +203,27 @@ export class RoomsService {
     return { roomPlayerId: roomPlayer.id, answersSubmitted: created.length };
   }
 
+  /**
+   * Lógica interna compartida: cierra una ronda y devuelve sus respuestas.
+   * No valida pertenencia a la sala (eso lo hace el caller según el contexto).
+   */
+  private async doCloseRoundForVoting(roundId: string) {
+    const updated = await this.prisma.rounds.update({
+      where: { id: roundId },
+      data: { status: 'voting' },
+    });
+
+    const answers = await this.prisma.answers.findMany({
+      where: { round_id: roundId },
+      include: {
+        category: { select: { id: true, name: true } },
+        room_player: { include: { user: { select: { id: true, username: true } } } },
+      },
+    });
+
+    return { round: updated, answers };
+  }
+
   async closeRoundForVoting(matchId: string, roundId: string, userId: string) {
     const round = await this.prisma.rounds.findUnique({
       where: { id: roundId },
@@ -220,20 +241,23 @@ export class RoomsService {
     });
     if (!roomPlayer) throw new BadRequestException('No formás parte de esta partida');
 
-    const updated = await this.prisma.rounds.update({
-      where: { id: roundId },
-      data: { status: 'voting' },
-    });
+    return this.doCloseRoundForVoting(roundId);
+  }
 
-    const answers = await this.prisma.answers.findMany({
-      where: { round_id: roundId },
-      include: {
-        category: { select: { id: true, name: true } },
-        room_player: { include: { user: { select: { id: true, username: true } } } },
-      },
-    });
+  /**
+   * Versión "silenciosa" para el timer automático: si la ronda ya no está
+   * en estado `answering` (porque alguien la cerró a mano antes de que
+   * venza el tiempo), simplemente no hace nada y devuelve null, en vez
+   * de tirar una excepción que rompería el timer.
+   */
+  async closeRoundForVotingIfStillAnswering(matchId: string, roundId: string) {
+    const round = await this.prisma.rounds.findUnique({ where: { id: roundId } });
 
-    return { round: updated, answers };
+    if (!round) return null;
+    if (round.match_id !== matchId) return null;
+    if (round.status !== 'answering') return null;
+
+    return this.doCloseRoundForVoting(roundId);
   }
 
   async voteAnswer(answerId: string, voterUserId: string, approve: boolean) {
@@ -247,11 +271,6 @@ export class RoomsService {
       throw new BadRequestException('Esta ronda no está en etapa de votación');
     }
 
-    const voterRoomPlayer = await this.prisma.room_players.findFirst({
-      where: { user_id: voterUserId, room_id: answer.round.match_id ? undefined : undefined },
-    });
-
-    // Buscamos el room_player del votante dentro de la misma sala que la respuesta
     const matchOfAnswer = await this.prisma.matches.findUnique({ where: { id: answer.round.match_id } });
     const voter = await this.prisma.room_players.findFirst({
       where: { user_id: voterUserId, room_id: matchOfAnswer?.room_id ?? undefined },
@@ -296,7 +315,6 @@ export class RoomsService {
       include: { votes: true },
     });
 
-    // Para detectar respuestas repetidas entre jugadores, agrupamos por categoría + texto normalizado
     const normalize = (s: string | null) =>
       (s ?? '')
         .trim()
@@ -321,7 +339,6 @@ export class RoomsService {
       } else {
         const approvals = a.votes.filter((v) => v.approve).length;
         const rejections = a.votes.filter((v) => !v.approve).length;
-        // Empate o más a favor => válida (beneficio de la duda)
         isValid = approvals >= rejections;
 
         if (isValid) {
@@ -346,7 +363,6 @@ export class RoomsService {
       data: { status: 'finished', finished_at: new Date() },
     });
 
-    // Sumamos los puntos al perfil de cada jugador
     const pointsByRoomPlayer: Record<string, number> = {};
     for (const a of finalAnswers) {
       if (!a.room_player_id) continue;

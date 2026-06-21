@@ -34,12 +34,22 @@ export class RoomsController {
   @Post(':code/start')
   async startMatch(@Param('code') code: string, @Body() dto: StartMatchDto, @Request() req) {
     const result = await this.roomsService.startMatch(code, req.user.userId, dto);
-    this.roomsGateway.emitToRoom(code.toUpperCase(), 'round_started', {
+    const upperCode = code.toUpperCase();
+
+    this.roomsGateway.emitToRoom(upperCode, 'round_started', {
       matchId: result.match.id,
       round: result.round,
       categoryIds: result.categoryIds,
       roundSeconds: result.roundSeconds,
     });
+
+    this.roomsGateway.scheduleRoundAutoClose(
+      upperCode,
+      result.match.id,
+      result.round.id,
+      result.roundSeconds,
+    );
+
     return result;
   }
 
@@ -69,6 +79,8 @@ export class RoomsController {
     @Request() req,
   ) {
     const result = await this.roomsService.closeRoundForVoting(matchId, roundId, req.user.userId);
+    // El jugador cerró la ronda a mano antes de que venza el tiempo: cancelamos el timer automático
+    this.roomsGateway.cancelRoundTimer(roundId);
     this.roomsGateway.emitToRoom(code.toUpperCase(), 'voting_started', result);
     return result;
   }

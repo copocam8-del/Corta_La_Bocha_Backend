@@ -26,6 +26,9 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   private readonly logger = new Logger(RoomsGateway.name);
 
+  // Guardamos los timers activos por roundId, para poder cancelarlos si la ronda se cierra a mano antes
+  private readonly activeTimers = new Map<string, NodeJS.Timeout>();
+
   constructor(private readonly roomsService: RoomsService) {}
 
   handleConnection(client: Socket) {
@@ -38,6 +41,39 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
 
   emitToRoom(roomCode: string, event: string, payload: any) {
     this.server.to(roomCode).emit(event, payload);
+  }
+
+  scheduleRoundAutoClose(
+    roomCode: string,
+    matchId: string,
+    roundId: string,
+    seconds: number,
+  ) {
+    // Si ya había un timer para esta ronda (no debería, pero por seguridad), lo limpiamos
+    this.cancelRoundTimer(roundId);
+
+    const timeout = setTimeout(async () => {
+      try {
+        const result = await this.roomsService.closeRoundForVotingIfStillAnswering(matchId, roundId);
+        if (result) {
+          this.emitToRoom(roomCode, 'voting_started', result);
+          this.logger.log(`Ronda ${roundId} cerrada automáticamente por tiempo`);
+        }
+      } catch (error) {
+        this.logger.error(`Error cerrando ronda ${roundId} automáticamente: ${error.message}`);
+      }
+      this.activeTimers.delete(roundId);
+    }, seconds * 1000);
+
+    this.activeTimers.set(roundId, timeout);
+  }
+
+  cancelRoundTimer(roundId: string) {
+    const existing = this.activeTimers.get(roundId);
+    if (existing) {
+      clearTimeout(existing);
+      this.activeTimers.delete(roundId);
+    }
   }
 
   @SubscribeMessage('join_room')
