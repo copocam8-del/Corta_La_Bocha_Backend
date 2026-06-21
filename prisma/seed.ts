@@ -2,26 +2,31 @@ import { PrismaClient } from '@prisma/client';
 
 const prisma = new PrismaClient();
 
+// Estos nombres tienen que coincidir EXACTO con VALID_CATEGORIES
+// en src/tutti-frutti/tutti-frutti.service.ts
 const BASIC_CATEGORIES = [
-  'Futbolista',
-  'Futbolista retirado',
-  'Club de América',
-  'Club de Europa',
-  'Selección Conmebol',
-  'Selección UEFA',
+  'Jugador',
+  'Equipo',
+  'DT',
+  'Selección',
+  'Jugador Arg',
+  'Equipo Arg',
+  'DT Arg',
   'Estadio',
-  'Director Técnico',
 ];
 
 const ADVANCED_CATEGORIES = [
-  'Liga',
-  'Selección CAF',
-  'Selección CONCACAF',
-  'Indispensable en un partido de fútbol',
-  'Jugadores de un país específico',
-  'Clubes que juegan Copa Libertadores',
-  'Clubes que juegan Champions League',
-  'Ganador de Balón de Oro',
+  'Campeón Champions',
+  'Campeón Mundial',
+  'Jugador Argentino',
+  'Apodo Club',
+  'Jugador Histórico',
+  'Clásico',
+  'Goleador',
+  'País Sede',
+  'Selección Campeona',
+  'Equipo Campeón',
+  'Jugador Promesa',
 ];
 
 async function main() {
@@ -41,7 +46,7 @@ async function main() {
     });
   }
 
-  console.log('✅ Categorías sembradas');
+  console.log('✅ Categorías sembradas (alineadas con tutti-frutti.service.ts)');
 }
 
 main()
