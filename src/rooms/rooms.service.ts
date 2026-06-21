@@ -154,4 +154,52 @@ export class RoomsService {
 
     return round;
   }
+
+  async submitAnswers(
+    matchId: string,
+    roundId: string,
+    userId: string,
+    answers: { categoryId: string; answerText: string | null }[],
+  ) {
+    const round = await this.prisma.rounds.findUnique({
+      where: { id: roundId },
+      include: { match: true },
+    });
+
+    if (!round) throw new NotFoundException('Ronda no encontrada');
+    if (round.match_id !== matchId) throw new BadRequestException('La ronda no pertenece a ese match');
+    if (round.status !== 'answering') {
+      throw new BadRequestException('Esta ronda ya no acepta respuestas');
+    }
+
+    const roomPlayer = await this.prisma.room_players.findFirst({
+      where: { user_id: userId, room_id: round.match.room_id ?? undefined },
+    });
+
+    if (!roomPlayer) throw new BadRequestException('No formás parte de esta partida');
+
+    const created = await this.prisma.$transaction(
+      answers.map((a) =>
+        this.prisma.answers.upsert({
+          where: {
+            round_id_room_player_id_category_id: {
+              round_id: roundId,
+              room_player_id: roomPlayer.id,
+              category_id: a.categoryId,
+            },
+          },
+          update: { answer_text: a.answerText },
+          create: {
+            round_id: roundId,
+            room_player_id: roomPlayer.id,
+            category_id: a.categoryId,
+            answer_text: a.answerText,
+            validated_by: 'pending',
+          },
+        }),
+      ),
+    );
+
+    return { roomPlayerId: roomPlayer.id, answersSubmitted: created.length };
+  }
 } 

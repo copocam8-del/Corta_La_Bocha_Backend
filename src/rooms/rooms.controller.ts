@@ -4,6 +4,7 @@ import { RoomsService } from './rooms.service';
 import { RoomsGateway } from './rooms.gateway';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { StartMatchDto } from './dto/start-match.dto';
+import { SubmitAnswersDto } from './dto/submit-answers.dto';
 
 @Controller('rooms')
 export class RoomsController {
@@ -37,6 +38,23 @@ export class RoomsController {
       round: result.round,
       categoryIds: result.categoryIds,
       roundSeconds: result.roundSeconds,
+    });
+    return result;
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post(':code/matches/:matchId/rounds/:roundId/answers')
+  async submitAnswers(
+    @Param('code') code: string,
+    @Param('matchId') matchId: string,
+    @Param('roundId') roundId: string,
+    @Body() dto: SubmitAnswersDto,
+    @Request() req,
+  ) {
+    const result = await this.roomsService.submitAnswers(matchId, roundId, req.user.userId, dto.answers);
+    this.roomsGateway.emitToRoom(code.toUpperCase(), 'player_answered', {
+      userId: req.user.userId,
+      roomPlayerId: result.roomPlayerId,
     });
     return result;
   }
