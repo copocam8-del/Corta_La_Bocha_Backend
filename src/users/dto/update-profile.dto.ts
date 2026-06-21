@@ -3,8 +3,8 @@ import { IsString, IsOptional, MinLength, MaxLength, IsUrl } from 'class-validat
 export class UpdateProfileDto {
   @IsOptional()
   @IsString()
-  @MinLength(2)
-  name?: string
+  @MinLength(3)
+  username?: string
 
   @IsOptional()
   @IsString()
@@ -14,4 +14,8 @@ export class UpdateProfileDto {
   @IsOptional()
   @IsUrl()
   avatar_url?: string
+
+  @IsOptional()
+  @IsString()
+  favorite_team?: string
 }

@@ -3,15 +3,23 @@ import { PrismaService } from '../prisma/prisma.service'
 
 const PROFILE_SELECT = {
   id: true,
-  name: true,
   username: true,
   email: true,
-  avatar_url: true,
-  bio: true,
-  games_played: true,
-  games_won: true,
-  total_points: true,
   created_at: true,
+  profile: {
+    select: {
+      avatar_url: true,
+      bio: true,
+      favorite_team: true,
+      favorite_country: true,
+      favorite_player: true,
+      matches_played: true,
+      matches_won: true,
+      tournaments_won: true,
+      total_points: true,
+      best_streak: true,
+    },
+  },
 }
 
 @Injectable()
@@ -19,29 +27,42 @@ export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   findAll() {
-    return this.prisma.user.findMany({
+    return this.prisma.users.findMany({
       select: PROFILE_SELECT,
     })
   }
 
   findOne(id: string) {
-    return this.prisma.user.findUnique({
+    return this.prisma.users.findUnique({
       where: { id },
       select: PROFILE_SELECT,
     })
   }
 
-  update(id: string, data: { name?: string; bio?: string; avatar_url?: string }) {
-    return this.prisma.user.update({
+  update(
+    id: string,
+    data: { username?: string; bio?: string; avatar_url?: string; favorite_team?: string },
+  ) {
+    const { username, ...profileFields } = data
+
+    return this.prisma.users.update({
       where: { id },
-      data,
+      data: {
+        ...(username ? { username } : {}),
+        profile: {
+          upsert: {
+            create: profileFields,
+            update: profileFields,
+          },
+        },
+      },
       select: PROFILE_SELECT,
     })
   }
 
   delete(id: string) {
-    return this.prisma.user.delete({
+    return this.prisma.users.delete({
       where: { id },
     })
   }
-} 
+}

@@ -5,40 +5,168 @@ generator client {
 datasource db {
   provider = "postgresql"
   url      = env("DATABASE_URL")
-} 
-model User {
-  id            String         @id @default(uuid()) @db.Uuid
-  username      String         @unique @db.VarChar(30)
-  name          String
-  email         String?        @unique @db.VarChar(255)
-  password      String?
-  is_guest      Boolean        @default(false)
-  avatar_url    String?
-  bio           String?        @db.VarChar(160)
-  games_played  Int            @default(0)
-  games_won     Int            @default(0)
-  total_points  Int            @default(0)
-  created_at    DateTime       @default(now()) @db.Timestamp(6)
-  room_players  room_players[]
+}
 
-  @@map("users")
+// ============================================
+// USERS
+// ============================================
+
+model users {
+  id            String   @id @default(uuid()) @db.Uuid
+  username      String   @unique @db.VarChar(30)
+  email         String?  @unique @db.VarChar(255)
+  password_hash String?
+  is_guest      Boolean  @default(false)
+  created_at    DateTime @default(now()) @db.Timestamp(6)
+
+  profile      profiles?
+  room_players room_players[]
+  votes        votes[]
+}
+
+model profiles {
+  id               String  @id @default(uuid()) @db.Uuid
+  user_id          String  @unique @db.Uuid
+  favorite_team    String? @db.VarChar(100)
+  favorite_country String? @db.VarChar(100)
+  favorite_player  String? @db.VarChar(100)
+
+  // Perfil público / personalización
+  avatar_url String?
+  bio        String? @db.VarChar(160)
+
+  matches_played  Int @default(0)
+  matches_won     Int @default(0)
+  tournaments_won Int @default(0)
+  total_points    Int @default(0)
+  best_streak     Int @default(0)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+// ============================================
+// ROOMS
+// ============================================
+
+model rooms {
+  id          String   @id @default(uuid()) @db.Uuid
+  room_code   String?  @unique @db.VarChar(10)
+  is_private  Boolean  @default(false)
+  status      String   @default("waiting") @db.VarChar(20)
+  max_players Int      @default(8)
+  created_at  DateTime @default(now()) @db.Timestamp(6)
+
+  room_players room_players[]
+  matches      matches[]
 }
 
 model room_players {
-  id        String    @id @db.Uuid
-  room_id   String?   @db.Uuid
-  user_id   String?   @db.Uuid
-  joined_at DateTime? @default(now()) @db.Timestamp(6)
-  rooms     rooms?    @relation(fields: [room_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  user      User?     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  id        String   @id @default(uuid()) @db.Uuid
+  room_id   String   @db.Uuid
+  user_id   String   @db.Uuid
+  joined_at DateTime @default(now()) @db.Timestamp(6)
+
+  room    rooms     @relation(fields: [room_id], references: [id], onDelete: Cascade)
+  user    users     @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  answers answers[]
+  votes   votes[]
+
+  @@unique([room_id, user_id])
 }
 
-model rooms {
-  id           String         @id @db.Uuid
-  room_code    String?        @unique @db.VarChar(10)
-  is_private   Boolean?       @default(false)
-  status       String         @db.VarChar(20)
-  max_players  Int?           @default(8)
-  created_at   DateTime?      @default(now()) @db.Timestamp(6)
-  room_players room_players[]
+// ============================================
+// MATCHES & ROUNDS
+// ============================================
+
+model matches {
+  id            String    @id @default(uuid()) @db.Uuid
+  room_id       String?   @db.Uuid
+  mode          String    @default("multiplayer") @db.VarChar(20)
+  ai_difficulty String?   @db.VarChar(20)
+  status        String    @default("in_progress") @db.VarChar(20)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
+  finished_at   DateTime?
+
+  room   rooms?   @relation(fields: [room_id], references: [id], onDelete: SetNull)
+  rounds rounds[]
+}
+
+model rounds {
+  id           String    @id @default(uuid()) @db.Uuid
+  match_id     String    @db.Uuid
+  round_number Int
+  letter       String    @db.VarChar(1)
+  status       String    @default("answering") @db.VarChar(20)
+  started_at   DateTime  @default(now()) @db.Timestamp(6)
+  finished_at  DateTime?
+
+  match   matches   @relation(fields: [match_id], references: [id], onDelete: Cascade)
+  answers answers[]
+
+  @@unique([match_id, round_number])
+}
+
+// ============================================
+// CATEGORIES
+// ============================================
+
+model categories {
+  id          String  @id @default(uuid()) @db.Uuid
+  name        String  @unique @db.VarChar(100)
+  is_active   Boolean @default(true)
+  is_advanced Boolean @default(false)
+  season_id   String? @db.Uuid
+
+  season  seasons?  @relation(fields: [season_id], references: [id], onDelete: SetNull)
+  answers answers[]
+}
+
+// ============================================
+// ANSWERS & VOTES
+// ============================================
+
+model answers {
+  id             String   @id @default(uuid()) @db.Uuid
+  round_id       String   @db.Uuid
+  room_player_id String?  @db.Uuid
+  category_id    String   @db.Uuid
+  answer_text    String?  @db.VarChar(150)
+  is_valid       Boolean?
+  points         Int      @default(0)
+  validated_by   String   @default("pending") @db.VarChar(20)
+
+  round       rounds        @relation(fields: [round_id], references: [id], onDelete: Cascade)
+  room_player room_players? @relation(fields: [room_player_id], references: [id], onDelete: Cascade)
+  category    categories    @relation(fields: [category_id], references: [id], onDelete: Cascade)
+  votes       votes[]
+
+  @@unique([round_id, room_player_id, category_id])
+}
+
+model votes {
+  id             String  @id @default(uuid()) @db.Uuid
+  answer_id      String  @db.Uuid
+  room_player_id String  @db.Uuid
+  user_id        String  @db.Uuid
+  approve        Boolean
+
+  answer      answers      @relation(fields: [answer_id], references: [id], onDelete: Cascade)
+  room_player room_players @relation(fields: [room_player_id], references: [id], onDelete: Cascade)
+  user        users        @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([answer_id, user_id])
+}
+
+// ============================================
+// SEASONS
+// ============================================
+
+model seasons {
+  id        String    @id @default(uuid()) @db.Uuid
+  name      String    @db.VarChar(100)
+  is_active Boolean   @default(false)
+  starts_at DateTime?
+  ends_at   DateTime?
+
+  categories categories[]
 }
