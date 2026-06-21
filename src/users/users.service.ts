@@ -1,32 +1,45 @@
 import { Injectable } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 
+const PROFILE_SELECT = {
+  id: true,
+  name: true,
+  username: true,
+  email: true,
+  avatar_url: true,
+  bio: true,
+  games_played: true,
+  games_won: true,
+  total_points: true,
+  created_at: true,
+}
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.user.findMany({
-      select: { id: true, name: true, email: true },
+      select: PROFILE_SELECT,
     })
   }
 
-  findOne(id: number) {
+  findOne(id: string) {
     return this.prisma.user.findUnique({
       where: { id },
-      select: { id: true, name: true, email: true },
+      select: PROFILE_SELECT,
     })
   }
 
-  update(id: number, name: string) {
+  update(id: string, data: { name?: string; bio?: string; avatar_url?: string }) {
     return this.prisma.user.update({
       where: { id },
-      data: { name },
-      select: { id: true, name: true, email: true },
+      data,
+      select: PROFILE_SELECT,
     })
   }
 
-  delete(id: number) {
+  delete(id: string) {
     return this.prisma.user.delete({
       where: { id },
     })

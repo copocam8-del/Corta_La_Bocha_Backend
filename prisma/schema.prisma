@@ -7,12 +7,22 @@ datasource db {
   url      = env("DATABASE_URL")
 } 
 model User {
-  id       Int    @id @default(autoincrement())
-  name     String
-  email    String @unique
-  password String
-} 
+  id            String         @id @default(uuid()) @db.Uuid
+  username      String         @unique @db.VarChar(30)
+  name          String
+  email         String?        @unique @db.VarChar(255)
+  password      String?
+  is_guest      Boolean        @default(false)
+  avatar_url    String?
+  bio           String?        @db.VarChar(160)
+  games_played  Int            @default(0)
+  games_won     Int            @default(0)
+  total_points  Int            @default(0)
+  created_at    DateTime       @default(now()) @db.Timestamp(6)
+  room_players  room_players[]
 
+  @@map("users")
+}
 
 model room_players {
   id        String    @id @db.Uuid
@@ -20,7 +30,7 @@ model room_players {
   user_id   String?   @db.Uuid
   joined_at DateTime? @default(now()) @db.Timestamp(6)
   rooms     rooms?    @relation(fields: [room_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
-  users     users?    @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
+  user      User?     @relation(fields: [user_id], references: [id], onDelete: NoAction, onUpdate: NoAction)
 }
 
 model rooms {
@@ -31,14 +41,4 @@ model rooms {
   max_players  Int?           @default(8)
   created_at   DateTime?      @default(now()) @db.Timestamp(6)
   room_players room_players[]
-}
-
-model users {
-  id            String         @id @db.Uuid
-  username      String         @unique @db.VarChar(30)
-  email         String?        @unique @db.VarChar(255)
-  password_hash String?
-  is_guest      Boolean?       @default(false)
-  created_at    DateTime?      @default(now()) @db.Timestamp(6)
-  room_players  room_players[]
 }
