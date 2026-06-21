@@ -22,12 +22,12 @@ export class UsersController {
   }
 
   @Put(':id')
-  update(@Param('id') id: string, @Body() body: { name: string }) {
-    return this.usersService.update(Number(id), body.name)
+  update(@Param('id') id: string, @Body() body: { username: string }) {
+    return this.usersService.update(id, body.username)
   }
 
   @Delete(':id')
   delete(@Param('id') id: string) {
-    return this.usersService.delete(Number(id))
+    return this.usersService.delete(id)
   }
 } 
