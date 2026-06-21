@@ -19,13 +19,14 @@ export class TuttiFruttiValidatorService {
 
   // Categorías válidas del juego
   private readonly VALID_CATEGORIES = [
-    'Jugador',
-    'Equipo',
-    'DT',
-    'Selección',
-    'Campeón Champions',
-    'Campeón Mundial',
-    'Jugador Argentino',
+    // General
+    'Jugador', 'Equipo', 'DT', 'Selección', 'Campeón Champions', 'Campeón Mundial', 'Jugador Argentino',
+    // Liga Argentina
+    'Jugador Arg', 'Equipo Arg', 'DT Arg', 'Estadio', 'Apodo Club', 'Jugador Histórico', 'Clásico',
+    // Mundial
+    'Goleador', 'País Sede', 'Selección Campeona',
+    // Champions / Libertadores
+    'Equipo Campeón', 'Jugador Promesa',
   ];
 
   constructor(private readonly configService: ConfigService) {
@@ -230,11 +231,22 @@ Respond with ONLY a JSON object in this exact format (no additional text):
       DT: 'Must be a real football coach/manager (Director Técnico)',
       Selección: 'Must be a real national team',
       'Campeón Champions': 'Must be a team that won the UEFA Champions League',
-      'Campeón Mundial': 'Must be a team that won the FIFA World Cup',
-      'Jugador Argentino':
-        'Must be a real Argentine football player (nationality or dual nationality counts)',
+      'Campeón Mundial': 'Must be a national team that won the FIFA World Cup',
+      'Jugador Argentino': 'Must be a real Argentine football player',
+      'Jugador Arg': 'Must be a real Argentine football player (current or historical)',
+      'Equipo Arg': 'Must be a real Argentine football club',
+      'DT Arg': 'Must be a real Argentine football coach/manager',
+      'Estadio': 'Must be a real football stadium (any country)',
+      'Apodo Club': 'Must be a real nickname of a football club (e.g. Los Millonarios for River Plate)',
+      'Jugador Histórico': 'Must be a historically significant retired football player',
+      'Clásico': 'Must be a real football rivalry/derby (e.g. Superclásico, El Clásico)',
+      'Goleador': 'Must be a real football player known as a top scorer',
+      'País Sede': 'Must be a real country that hosted the FIFA World Cup',
+      'Selección Campeona': 'Must be a national team that won the FIFA World Cup',
+      'Equipo Campeón': 'Must be a club that won Champions League or Copa Libertadores',
+      'Jugador Promesa': 'Must be a young promising football player (under 23)',
     };
-    return rules[category] || 'No specific rules';
+    return rules[category] || 'Must be a real football entity related to the category';
   }
 
   private parseAiResponse(
