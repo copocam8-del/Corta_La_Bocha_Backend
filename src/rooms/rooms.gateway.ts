@@ -36,6 +36,10 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
     this.logger.log(`Cliente desconectado: ${client.id}`);
   }
 
+  emitToRoom(roomCode: string, event: string, payload: any) {
+    this.server.to(roomCode).emit(event, payload);
+  }
+
   @SubscribeMessage('join_room')
   async handleJoinRoom(
     @MessageBody() payload: JoinRoomPayload,
@@ -43,13 +47,10 @@ export class RoomsGateway implements OnGatewayConnection, OnGatewayDisconnect {
   ) {
     const { roomCode, userId, username } = payload;
 
-    // Unimos el socket a una "room" interna de Socket.IO con ese código
     await client.join(roomCode);
 
-    // Avisamos a todos los demás en esa sala (menos a quien acaba de entrar)
     client.to(roomCode).emit('player_joined', { userId, username });
 
-    // Le devolvemos al que entró el estado actual de la sala
     const room = await this.roomsService.findByCode(roomCode);
     client.emit('room_state', room);
 
