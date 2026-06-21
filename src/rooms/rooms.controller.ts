@@ -5,6 +5,7 @@ import { RoomsGateway } from './rooms.gateway';
 import { CreateRoomDto } from './dto/create-room.dto';
 import { StartMatchDto } from './dto/start-match.dto';
 import { SubmitAnswersDto } from './dto/submit-answers.dto';
+import { VoteAnswerDto } from './dto/vote-answer.dto';
 
 @Controller('rooms')
 export class RoomsController {
@@ -56,6 +57,48 @@ export class RoomsController {
       userId: req.user.userId,
       roomPlayerId: result.roomPlayerId,
     });
+    return result;
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post(':code/matches/:matchId/rounds/:roundId/close')
+  async closeRound(
+    @Param('code') code: string,
+    @Param('matchId') matchId: string,
+    @Param('roundId') roundId: string,
+    @Request() req,
+  ) {
+    const result = await this.roomsService.closeRoundForVoting(matchId, roundId, req.user.userId);
+    this.roomsGateway.emitToRoom(code.toUpperCase(), 'voting_started', result);
+    return result;
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post(':code/answers/:answerId/vote')
+  async vote(
+    @Param('code') code: string,
+    @Param('answerId') answerId: string,
+    @Body() dto: VoteAnswerDto,
+    @Request() req,
+  ) {
+    const result = await this.roomsService.voteAnswer(answerId, req.user.userId, dto.approve);
+    this.roomsGateway.emitToRoom(code.toUpperCase(), 'answer_voted', {
+      answerId,
+      voterUserId: req.user.userId,
+      approve: dto.approve,
+    });
+    return result;
+  }
+
+  @UseGuards(AuthGuard('jwt'))
+  @Post(':code/matches/:matchId/rounds/:roundId/tally')
+  async tally(
+    @Param('code') code: string,
+    @Param('matchId') matchId: string,
+    @Param('roundId') roundId: string,
+  ) {
+    const result = await this.roomsService.tallyRoundVotes(matchId, roundId);
+    this.roomsGateway.emitToRoom(code.toUpperCase(), 'round_finished', result);
     return result;
   }
 

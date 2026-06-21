@@ -202,4 +202,167 @@ export class RoomsService {
 
     return { roomPlayerId: roomPlayer.id, answersSubmitted: created.length };
   }
+
+  async closeRoundForVoting(matchId: string, roundId: string, userId: string) {
+    const round = await this.prisma.rounds.findUnique({
+      where: { id: roundId },
+      include: { match: true },
+    });
+
+    if (!round) throw new NotFoundException('Ronda no encontrada');
+    if (round.match_id !== matchId) throw new BadRequestException('La ronda no pertenece a ese match');
+    if (round.status !== 'answering') {
+      throw new BadRequestException('Esta ronda no está en estado de respuesta');
+    }
+
+    const roomPlayer = await this.prisma.room_players.findFirst({
+      where: { user_id: userId, room_id: round.match.room_id ?? undefined },
+    });
+    if (!roomPlayer) throw new BadRequestException('No formás parte de esta partida');
+
+    const updated = await this.prisma.rounds.update({
+      where: { id: roundId },
+      data: { status: 'voting' },
+    });
+
+    const answers = await this.prisma.answers.findMany({
+      where: { round_id: roundId },
+      include: {
+        category: { select: { id: true, name: true } },
+        room_player: { include: { user: { select: { id: true, username: true } } } },
+      },
+    });
+
+    return { round: updated, answers };
+  }
+
+  async voteAnswer(answerId: string, voterUserId: string, approve: boolean) {
+    const answer = await this.prisma.answers.findUnique({
+      where: { id: answerId },
+      include: { round: true, room_player: true },
+    });
+
+    if (!answer) throw new NotFoundException('Respuesta no encontrada');
+    if (answer.round.status !== 'voting') {
+      throw new BadRequestException('Esta ronda no está en etapa de votación');
+    }
+
+    const voterRoomPlayer = await this.prisma.room_players.findFirst({
+      where: { user_id: voterUserId, room_id: answer.round.match_id ? undefined : undefined },
+    });
+
+    // Buscamos el room_player del votante dentro de la misma sala que la respuesta
+    const matchOfAnswer = await this.prisma.matches.findUnique({ where: { id: answer.round.match_id } });
+    const voter = await this.prisma.room_players.findFirst({
+      where: { user_id: voterUserId, room_id: matchOfAnswer?.room_id ?? undefined },
+    });
+
+    if (!voter) throw new BadRequestException('No formás parte de esta partida');
+
+    if (answer.room_player_id === voter.id) {
+      throw new BadRequestException('No podés votar tu propia respuesta');
+    }
+
+    const vote = await this.prisma.votes.upsert({
+      where: {
+        answer_id_user_id: {
+          answer_id: answerId,
+          user_id: voterUserId,
+        },
+      },
+      update: { approve },
+      create: {
+        answer_id: answerId,
+        room_player_id: voter.id,
+        user_id: voterUserId,
+        approve,
+      },
+    });
+
+    return vote;
+  }
+
+  async tallyRoundVotes(matchId: string, roundId: string) {
+    const round = await this.prisma.rounds.findUnique({
+      where: { id: roundId },
+      include: { match: true },
+    });
+
+    if (!round) throw new NotFoundException('Ronda no encontrada');
+    if (round.match_id !== matchId) throw new BadRequestException('La ronda no pertenece a ese match');
+
+    const answers = await this.prisma.answers.findMany({
+      where: { round_id: roundId },
+      include: { votes: true },
+    });
+
+    // Para detectar respuestas repetidas entre jugadores, agrupamos por categoría + texto normalizado
+    const normalize = (s: string | null) =>
+      (s ?? '')
+        .trim()
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '');
+
+    const groupCount: Record<string, number> = {};
+    for (const a of answers) {
+      if (!a.answer_text) continue;
+      const key = `${a.category_id}::${normalize(a.answer_text)}`;
+      groupCount[key] = (groupCount[key] ?? 0) + 1;
+    }
+
+    const updates = answers.map((a) => {
+      let isValid = false;
+      let points = 0;
+
+      if (!a.answer_text || a.answer_text.trim() === '') {
+        isValid = false;
+        points = 0;
+      } else {
+        const approvals = a.votes.filter((v) => v.approve).length;
+        const rejections = a.votes.filter((v) => !v.approve).length;
+        // Empate o más a favor => válida (beneficio de la duda)
+        isValid = approvals >= rejections;
+
+        if (isValid) {
+          const key = `${a.category_id}::${normalize(a.answer_text)}`;
+          const isRepeated = (groupCount[key] ?? 0) > 1;
+          points = isRepeated ? 5 : 10;
+        } else {
+          points = 0;
+        }
+      }
+
+      return this.prisma.answers.update({
+        where: { id: a.id },
+        data: { is_valid: isValid, points, validated_by: 'votes' },
+      });
+    });
+
+    const finalAnswers = await this.prisma.$transaction(updates);
+
+    await this.prisma.rounds.update({
+      where: { id: roundId },
+      data: { status: 'finished', finished_at: new Date() },
+    });
+
+    // Sumamos los puntos al perfil de cada jugador
+    const pointsByRoomPlayer: Record<string, number> = {};
+    for (const a of finalAnswers) {
+      if (!a.room_player_id) continue;
+      pointsByRoomPlayer[a.room_player_id] = (pointsByRoomPlayer[a.room_player_id] ?? 0) + a.points;
+    }
+
+    for (const [roomPlayerId, points] of Object.entries(pointsByRoomPlayer)) {
+      const rp = await this.prisma.room_players.findUnique({ where: { id: roomPlayerId } });
+      if (!rp) continue;
+      await this.prisma.profiles.upsert({
+        where: { user_id: rp.user_id },
+        update: { total_points: { increment: points } },
+        create: { user_id: rp.user_id, total_points: points },
+      });
+    }
+
+    return { answers: finalAnswers, pointsByRoomPlayer };
+  }
 } 
