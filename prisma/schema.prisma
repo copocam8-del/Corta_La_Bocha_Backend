@@ -12,17 +12,22 @@ datasource db {
 // ============================================
 
 model users {
-  id            String   @id @default(uuid()) @db.Uuid
-  username      String   @unique @db.VarChar(30)
-  email         String?  @unique @db.VarChar(255)
+  id            String    @id @default(uuid()) @db.Uuid
+  username      String    @unique @db.VarChar(30)
+  first_name    String?   @db.VarChar(50)
+  last_name     String?   @db.VarChar(50)
+  birth_date    DateTime? @db.Date
+  country       String?   @db.VarChar(56)
+  email         String?   @unique @db.VarChar(255)
   password_hash String?
-  is_guest      Boolean  @default(false)
-  created_at    DateTime @default(now()) @db.Timestamp(6)
+  is_guest      Boolean   @default(false)
+  created_at    DateTime  @default(now()) @db.Timestamp(6)
 
   profile      profiles?
   room_players room_players[]
   votes        votes[]
 }
+
 
 model profiles {
   id               String  @id @default(uuid()) @db.Uuid

@@ -5,6 +5,10 @@ const PROFILE_SELECT = {
   id: true,
   username: true,
   email: true,
+  first_name: true,
+  last_name: true,
+  birth_date: true,
+  country: true,
   created_at: true,
   profile: {
     select: {
