@@ -1,8 +1,7 @@
 {
   "compilerOptions": {
-    "module": "nodenext",
-    "moduleResolution": "nodenext",
-    "resolvePackageJsonExports": true,
+    "module": "commonjs",
+    "moduleResolution": "node",
     "esModuleInterop": true,
     "isolatedModules": true,
     "declaration": true,
@@ -23,4 +22,4 @@
     "noFallthroughCasesInSwitch": false
   },
   "exclude": ["node_modules", "dist", "test", "prisma.config.ts"]
-} 
+}
