@@ -1,23 +1,13 @@
-import { ValidationPipe } from '@nestjs/common'
-import { NestFactory } from '@nestjs/core'
-import { AppModule } from './app.module'
+import { NestFactory } from '@nestjs/core';
+import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule)
+  const app = await NestFactory.create(AppModule);
+  
+  // Habilitamos CORS para que el frontend (puerto 5173) pueda comunicarse con el backend sin bloqueos
+  app.enableCors();
 
-  app.enableCors({
-    origin: true, // refleja el origin del request (sirve para cualquier puerto en localhost)
-    credentials: true,
-  })
-
-  app.useGlobalPipes(
-    new ValidationPipe({
-      whitelist: true,
-      forbidNonWhitelisted: true,
-      transform: true,
-    }),
-  )
-
-  await app.listen(3000)
+  await app.listen(3000);
+  console.log('🚀 Backend de Corta La Bocha corriendo en: http://localhost:3000');
 }
-bootstrap()
+bootstrap();
