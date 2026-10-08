@@ -63,10 +63,4 @@ export class UsersService {
       select: PROFILE_SELECT,
     })
   }
-
-  delete(id: string) {
-    return this.prisma.users.delete({
-      where: { id },
-    })
-  }
 }

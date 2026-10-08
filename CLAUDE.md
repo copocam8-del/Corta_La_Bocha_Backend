@@ -51,7 +51,7 @@ src/
   solo-matches/        partidas contra la IA
   tutti-frutti/        validación de respuestas (IA)
   categories/          listado de categorías
-  prisma/              PrismaService
+  prisma/              PrismaModule (global) + PrismaService: una sola conexión para toda la app
 prisma/
   schema.prisma        modelos (users, profiles, rooms, matches, rounds, answers, votes, categories, seasons)
   migrations/          migraciones (nunca editar una ya aplicada)
@@ -90,3 +90,10 @@ prisma/
 - No commitear `.env` ni secretos.
 - Trabajar en una rama y abrir PR contra `main`.
 - Errores esperables (datos inválidos, duplicados) deben devolver 4xx, nunca 500.
+- Para usar la base, inyectá `PrismaService` en el constructor. **No** lo agregues a los `providers` de
+  un módulo: `PrismaModule` es global y cada copia extra abre otro grupo de conexiones.
+- Nunca imprimas `DATABASE_URL` (ni ninguna variable con secretos) en los logs.
+- Con `NODE_ENV=production`, si no hay conexión a la base, el servidor no arranca (el deploy falla
+  y Render deja la versión anterior). Fuera de producción sólo avisa.
+- Un usuario sólo puede modificar su propia cuenta (`/users/me`). No agregar endpoints que editen o
+  borren usuarios por `:id` sin un sistema de roles.
