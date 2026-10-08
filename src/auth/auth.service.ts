@@ -1,7 +1,10 @@
 import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+
+const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
 @Injectable()
 export class AuthService {
@@ -11,7 +14,7 @@ export class AuthService {
     const slug = base
       .toLowerCase()
       .normalize('NFD')
-      .replace(/[\u0300-\u036f]/g, '') // saca acentos
+      .replace(/[̀-ͯ]/g, '') // saca acentos
       .replace(/[^a-z0-9]/g, '')
       .slice(0, 20) || 'jugador';
 
@@ -26,6 +29,13 @@ export class AuthService {
     return candidate;
   }
 
+  // Busca por email sin distinguir mayúsculas: hay cuentas viejas guardadas con mayúsculas
+  private findByEmail(email: string) {
+    return this.prisma.users.findFirst({
+      where: { email: { equals: normalizeEmail(email), mode: 'insensitive' } },
+    });
+  }
+
   async register(data: {
     username?: string
     name?: string
@@ -35,7 +45,9 @@ export class AuthService {
     email: string
     password: string
   }) {
-    const existingEmail = await this.prisma.users.findUnique({ where: { email: data.email } });
+    const email = normalizeEmail(data.email);
+
+    const existingEmail = await this.findByEmail(email);
     if (existingEmail) throw new ConflictException('Email ya registrado');
 
     let username = data.username;
@@ -43,28 +55,39 @@ export class AuthService {
       const existingUsername = await this.prisma.users.findUnique({ where: { username } });
       if (existingUsername) throw new ConflictException('Nombre de usuario ya en uso');
     } else {
-      username = await this.generateUniqueUsername(data.name || data.email.split('@')[0]);
+      username = await this.generateUniqueUsername(data.name || email.split('@')[0]);
     }
 
     const hashed = await bcrypt.hash(data.password, 10);
-    const user = await this.prisma.users.create({
-      data: {
-        username,
-        first_name: data.name,
-        last_name: data.lastName,
-        birth_date: data.birthDate ? new Date(data.birthDate) : undefined,
-        country: data.country,
-        email: data.email,
-        password_hash: hashed,
-        profile: { create: {} },
-      },
-    });
+    try {
+      const user = await this.prisma.users.create({
+        data: {
+          username,
+          first_name: data.name,
+          last_name: data.lastName,
+          birth_date: data.birthDate ? new Date(data.birthDate) : undefined,
+          country: data.country,
+          email,
+          password_hash: hashed,
+          profile: { create: {} },
+        },
+      });
 
-    return { message: 'Usuario creado', userId: user.id, username: user.username };
+      return { message: 'Usuario creado', userId: user.id, username: user.username };
+    } catch (e) {
+      // Dos registros simultáneos pueden pasar los chequeos de arriba; la base frena el segundo con P2002
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        const target = JSON.stringify(e.meta?.target ?? '');
+        throw new ConflictException(
+          target.includes('username') ? 'Nombre de usuario ya en uso' : 'Email ya registrado',
+        );
+      }
+      throw e;
+    }
   }
 
- async login(data: { email: string; password: string }) {
-    const user = await this.prisma.users.findUnique({ where: { email: data.email } });
+  async login(data: { email: string; password: string }) {
+    const user = await this.findByEmail(data.email);
     if (!user || !user.password_hash) throw new UnauthorizedException('Credenciales inválidas');
 
     const valid = await bcrypt.compare(data.password, user.password_hash);

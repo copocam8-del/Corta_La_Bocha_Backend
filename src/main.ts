@@ -3,11 +3,15 @@ import { AppModule } from './app.module';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
-  
-  // Habilitamos CORS para que el frontend (puerto 5173) pueda comunicarse con el backend sin bloqueos
-  app.enableCors();
 
-  await app.listen(3000);
-  console.log('🚀 Backend de Corta La Bocha corriendo en: http://localhost:3000');
+  // CORS_ORIGIN es opcional: lista separada por comas (ej: "https://mi-front.com,http://localhost:5173").
+  // Si no está definida se acepta cualquier origen, como antes.
+  const corsOrigin = process.env.CORS_ORIGIN?.split(',').map((o) => o.trim()).filter(Boolean);
+  app.enableCors(corsOrigin?.length ? { origin: corsOrigin } : undefined);
+
+  // Render asigna el puerto en la variable PORT
+  const port = Number(process.env.PORT) || 3000;
+  await app.listen(port);
+  console.log(`🚀 Backend de Corta La Bocha corriendo en el puerto ${port}`);
 }
-bootstrap();
+void bootstrap();
