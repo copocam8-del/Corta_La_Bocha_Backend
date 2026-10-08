@@ -2,7 +2,6 @@ import {
   Controller,
   Get,
   Put,
-  Delete,
   Param,
   Body,
   Request,
@@ -39,13 +38,6 @@ export class UsersController {
     return this.usersService.findOne(id)
   }
 
-  @Put(':id')
-  update(@Param('id') id: string, @Body() body: UpdateProfileDto) {
-    return this.usersService.update(id, body)
-  }
-
-  @Delete(':id')
-  delete(@Param('id') id: string) {
-    return this.usersService.delete(id)
-  }
+  // No hay PUT ni DELETE /users/:id a propósito: cualquier usuario logueado podía editar o
+  // borrar la cuenta de otro. Cada uno modifica sólo la suya con PUT /users/me.
 }
