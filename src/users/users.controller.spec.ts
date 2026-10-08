@@ -4,6 +4,7 @@ import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { UsersController } from './users.controller';
 import { UsersService } from './users.service';
 import { StatsService } from '../stats/stats.service';
+import { AchievementsService } from '../achievements/achievements.service';
 import { authValidationPipe } from '../auth/auth-validation.pipe';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 
@@ -32,6 +33,7 @@ async function validar(body: object) {
 describe('UsersController', () => {
   const usersService = { findOne: jest.fn(), findAll: jest.fn(), update: jest.fn() };
   const statsService = { getUserRanking: jest.fn(), getTopPlayers: jest.fn() };
+  const achievementsService = { listForUser: jest.fn() };
   let controller: UsersController;
 
   beforeEach(async () => {
@@ -41,6 +43,7 @@ describe('UsersController', () => {
       providers: [
         { provide: UsersService, useValue: usersService },
         { provide: StatsService, useValue: statsService },
+        { provide: AchievementsService, useValue: achievementsService },
       ],
     }).compile();
 
@@ -65,6 +68,11 @@ describe('UsersController', () => {
   it('GET /users/me/ranking usa el usuario del token', async () => {
     await controller.getMyRanking({ user: { userId: 'u1' } });
     expect(statsService.getUserRanking).toHaveBeenCalledWith('u1');
+  });
+
+  it('GET /users/me/achievements usa el usuario del token', async () => {
+    await controller.getMyAchievements({ user: { userId: 'u1' } });
+    expect(achievementsService.listForUser).toHaveBeenCalledWith('u1');
   });
 
   describe('validación del perfil', () => {

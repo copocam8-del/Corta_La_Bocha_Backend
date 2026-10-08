@@ -85,6 +85,14 @@ prisma/
 - Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
   (mismo set en el frontend). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
 
+## Logros
+
+- Definiciones en `src/achievements/achievements.definitions.ts` (12 logros, condición = función sobre las
+  estadísticas y la partida). En la base (`user_achievements`) sólo se guarda cuál y cuándo.
+  **Nunca cambies el id de un logro existente.**
+- Se otorgan al terminar una partida (solo o multijugador), dentro de la misma transacción que las
+  estadísticas (`AchievementsService.unlockFor`). `GET /users/me/achievements` los lista todos.
+
 ## Variables de entorno (ver `.env.example`)
 
 | Variable | Para qué |

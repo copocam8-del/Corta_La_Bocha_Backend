@@ -3,6 +3,7 @@ import { BadRequestException, ConflictException } from '@nestjs/common';
 import { RoomsService } from './rooms.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { StatsService } from '../stats/stats.service';
+import { AchievementsService } from '../achievements/achievements.service';
 
 describe('RoomsService', () => {
   let service: RoomsService;
@@ -19,6 +20,8 @@ describe('RoomsService', () => {
     ),
   };
   const stats = { recordMatchResult: jest.fn() };
+  const achievements = { unlockFor: jest.fn() };
+  const perfil = { matches_played: 1, matches_won: 1, total_points: 20, current_streak: 1, best_streak: 1 };
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -27,9 +30,12 @@ describe('RoomsService', () => {
         RoomsService,
         { provide: PrismaService, useValue: prisma },
         { provide: StatsService, useValue: stats },
+        { provide: AchievementsService, useValue: achievements },
       ],
     }).compile();
     service = module.get(RoomsService);
+    stats.recordMatchResult.mockResolvedValue(perfil);
+    achievements.unlockFor.mockResolvedValue([]);
   });
 
   describe('tallyRoundVotes', () => {
@@ -83,6 +89,21 @@ describe('RoomsService', () => {
       expect(stats.recordMatchResult).toHaveBeenCalledTimes(3);
       expect(stats.recordMatchResult).toHaveBeenCalledWith('u1', { won: true, points: 0 }, prisma);
       expect(stats.recordMatchResult).toHaveBeenCalledWith('u3', { won: false, points: 0 }, prisma);
+    });
+
+    it('otorga logros de multijugador y los devuelve por jugador', async () => {
+      prisma.answers.findMany.mockResolvedValue([{ room_player_id: 'rp1', points: 10 }]);
+      achievements.unlockFor.mockImplementation((userId: string) =>
+        Promise.resolve(userId === 'u1' ? [{ id: 'campeon_del_barrio', name: 'Campeón del barrio', description: '' }] : []),
+      );
+
+      const res = await service.finishMatch('abc123', 'm1', 'u1');
+
+      expect(achievements.unlockFor).toHaveBeenCalledWith(
+        'u1', expect.objectContaining({ mode: 'multiplayer', won: true }), prisma,
+      );
+      expect(res.standings.find((s) => s.userId === 'u1')!.newAchievements.map((a) => a.id)).toEqual(['campeon_del_barrio']);
+      expect(res.standings.find((s) => s.userId === 'u2')!.newAchievements).toEqual([]);
     });
 
     it('si empatan arriba, ganan los dos', async () => {

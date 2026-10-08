@@ -4,6 +4,7 @@ import { SoloMatchesService } from './solo-matches.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { TuttiFruttiValidatorService } from '../tutti-frutti/tutti-frutti.service';
 import { StatsService } from '../stats/stats.service';
+import { AchievementsService } from '../achievements/achievements.service';
 import { TEMATICAS } from './solo-quick';
 
 describe('SoloMatchesService (partida rápida)', () => {
@@ -18,6 +19,7 @@ describe('SoloMatchesService (partida rápida)', () => {
   };
   const validator = { validateRound: jest.fn() };
   const stats = { recordMatchResult: jest.fn() };
+  const achievements = { unlockFor: jest.fn() };
 
   const perfil = { matches_played: 1, matches_won: 1, total_points: 20, current_streak: 1, best_streak: 1 };
 
@@ -42,6 +44,7 @@ describe('SoloMatchesService (partida rápida)', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: TuttiFruttiValidatorService, useValue: validator },
         { provide: StatsService, useValue: stats },
+        { provide: AchievementsService, useValue: achievements },
       ],
     }).compile();
     service = module.get(SoloMatchesService);
@@ -49,6 +52,7 @@ describe('SoloMatchesService (partida rápida)', () => {
     prisma.matches.updateMany.mockResolvedValue({ count: 1 });
     prisma.categories.findMany.mockResolvedValue([{ id: 'c1', name: 'Jugador' }]);
     stats.recordMatchResult.mockResolvedValue(perfil);
+    achievements.unlockFor.mockResolvedValue([]);
   });
 
   it('al empezar guarda dueño, temática y duración, y devuelve las categorías y el plan de la máquina', async () => {
@@ -79,6 +83,24 @@ describe('SoloMatchesService (partida rápida)', () => {
     expect(prisma.matches.update).toHaveBeenCalledWith(
       expect.objectContaining({ data: expect.objectContaining({ status: 'finished' }) }),
     );
+  });
+
+  it('revisa los logros con los datos de la partida y devuelve los nuevos', async () => {
+    prisma.matches.findUnique.mockResolvedValue(partida());
+    validator.validateRound.mockResolvedValue({
+      totalPoints: 20,
+      results: [{ category: 'Jugador', isValid: true, points: 20 }],
+    });
+    achievements.unlockFor.mockResolvedValue([{ id: 'primer_gol', name: 'Primer gol', description: '' }]);
+
+    const res = await service.finishQuickMatch('u1', partida().id, [{ category: 'Jugador', answer: 'Ortega' }]);
+
+    expect(achievements.unlockFor).toHaveBeenCalledWith(
+      'u1',
+      expect.objectContaining({ mode: 'vs_ai', won: true, aiDifficulty: 'experto', matchesWon: 1, allAnswersValid: false }),
+      prisma,
+    );
+    expect(res.newAchievements.map((a) => a.id)).toEqual(['primer_gol']);
   });
 
   it('ignora categorías que no son de la temática', async () => {

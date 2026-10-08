@@ -11,6 +11,7 @@ import {
 import { AuthGuard } from '@nestjs/passport'
 import { UsersService } from './users.service'
 import { StatsService } from '../stats/stats.service'
+import { AchievementsService } from '../achievements/achievements.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { authValidationPipe } from '../auth/auth-validation.pipe'
 
@@ -20,6 +21,7 @@ export class UsersController {
   constructor(
     private readonly usersService: UsersService,
     private readonly statsService: StatsService,
+    private readonly achievementsService: AchievementsService,
   ) {}
 
   // Perfil del usuario logueado (lee el id del token, no de la URL)
@@ -32,6 +34,12 @@ export class UsersController {
   @Get('me/ranking')
   getMyRanking(@Request() req) {
     return this.statsService.getUserRanking(req.user.userId)
+  }
+
+  // Todos los logros, con los desbloqueados por el usuario marcados
+  @Get('me/achievements')
+  getMyAchievements(@Request() req) {
+    return this.achievementsService.listForUser(req.user.userId)
   }
 
   // Valida con el mismo pipe que /auth: errores 400 agrupados por campo y en español

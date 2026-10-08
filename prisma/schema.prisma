@@ -27,6 +27,7 @@ model users {
   room_players room_players[]
   votes        votes[]
   solo_matches matches[]
+  achievements user_achievements[]
 }
 
 model profiles {
@@ -49,6 +50,19 @@ model profiles {
   current_streak  Int @default(0)
 
   user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+// Logros desbloqueados. Las definiciones (nombre, descripción, condición) están en
+// src/achievements/achievements.definitions.ts; acá sólo se guarda cuál y cuándo.
+model user_achievements {
+  id             String   @id @default(uuid()) @db.Uuid
+  user_id        String   @db.Uuid
+  achievement_id String   @db.VarChar(40)
+  unlocked_at    DateTime @default(now()) @db.Timestamp(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, achievement_id])
 }
 
 // ============================================

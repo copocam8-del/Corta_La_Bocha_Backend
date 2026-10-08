@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StatsService } from '../stats/stats.service';
+import { AchievementsService, UnlockedAchievement } from '../achievements/achievements.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 
 @Injectable()
@@ -10,6 +11,7 @@ export class RoomsService {
   constructor(
     private prisma: PrismaService,
     private stats: StatsService,
+    private achievements: AchievementsService,
   ) {}
 
   private generateRoomCode(): string {
@@ -451,13 +453,29 @@ export class RoomsService {
       }))
       .sort((a, b) => b.points - a.points);
 
+    const newAchievements: Record<string, UnlockedAchievement[]> = {};
     await this.prisma.$transaction(async (tx) => {
       for (const s of standings) {
-        await this.stats.recordMatchResult(s.userId, { won: s.won, points: 0 }, tx);
+        const updated = await this.stats.recordMatchResult(s.userId, { won: s.won, points: 0 }, tx);
+        newAchievements[s.userId] = await this.achievements.unlockFor(
+          s.userId,
+          {
+            matchesPlayed: updated.matches_played,
+            matchesWon: updated.matches_won,
+            totalPoints: updated.total_points,
+            currentStreak: updated.current_streak,
+            mode: 'multiplayer',
+            won: s.won,
+          },
+          tx,
+        );
       }
       await tx.rooms.update({ where: { id: room.id }, data: { status: 'waiting' } });
     });
 
-    return { matchId, standings };
+    return {
+      matchId,
+      standings: standings.map((s) => ({ ...s, newAchievements: newAchievements[s.userId] ?? [] })),
+    };
   }
 } 

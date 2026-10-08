@@ -2,6 +2,7 @@ import { Injectable, NotFoundException, BadRequestException, ConflictException }
 import { PrismaService } from '../prisma/prisma.service';
 import { TuttiFruttiValidatorService } from '../tutti-frutti/tutti-frutti.service';
 import { StatsService } from '../stats/stats.service';
+import { AchievementsService } from '../achievements/achievements.service';
 import {
   buildAiPlan,
   Dificultad,
@@ -20,6 +21,7 @@ export class SoloMatchesService {
     private prisma: PrismaService,
     private aiValidator: TuttiFruttiValidatorService,
     private stats: StatsService,
+    private achievements: AchievementsService,
   ) {}
 
   // ─── Partida rápida contra la máquina (la que usa el frontend) ───────────────────────────
@@ -106,7 +108,10 @@ export class SoloMatchesService {
       });
       const categoryIdByName = new Map(categoryRows.map((c) => [c.name, c.id]));
 
-      const profile = await this.prisma.$transaction(async (tx) => {
+      const allAnswersValid =
+        validation.results.length === categories.length && validation.results.every((r) => r.isValid);
+
+      const { profile, newAchievements } = await this.prisma.$transaction(async (tx) => {
         for (const r of validation.results) {
           const categoryId = categoryIdByName.get(r.category);
           if (!categoryId) continue; // categoría no sembrada en la base: se puntúa igual, no se guarda
@@ -124,7 +129,22 @@ export class SoloMatchesService {
         }
         await tx.rounds.update({ where: { id: round.id }, data: { status: 'finished', finished_at: new Date() } });
         await tx.matches.update({ where: { id: matchId }, data: { status: 'finished', finished_at: new Date() } });
-        return this.stats.recordMatchResult(userId, { won: outcome === 'win', points: playerPoints }, tx);
+        const updated = await this.stats.recordMatchResult(userId, { won: outcome === 'win', points: playerPoints }, tx);
+        const unlocked = await this.achievements.unlockFor(
+          userId,
+          {
+            matchesPlayed: updated.matches_played,
+            matchesWon: updated.matches_won,
+            totalPoints: updated.total_points,
+            currentStreak: updated.current_streak,
+            mode: 'vs_ai',
+            won: outcome === 'win',
+            aiDifficulty: match.ai_difficulty,
+            allAnswersValid,
+          },
+          tx,
+        );
+        return { profile: updated, newAchievements: unlocked };
       });
 
       return {
@@ -135,6 +155,7 @@ export class SoloMatchesService {
         aiAnswers,
         aiPoints,
         outcome,
+        newAchievements,
         stats: {
           matchesPlayed: profile.matches_played,
           matchesWon: profile.matches_won,
