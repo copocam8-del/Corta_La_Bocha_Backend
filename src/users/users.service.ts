@@ -1,13 +1,11 @@
-import { Injectable } from '@nestjs/common'
+import { Injectable, NotFoundException } from '@nestjs/common'
 import { PrismaService } from '../prisma/prisma.service'
 
-const PROFILE_SELECT = {
+// Lo que cualquier usuario logueado puede ver de otro: sin email, fecha de nacimiento
+// ni nombre y apellido reales (puede haber menores de edad registrados).
+const PUBLIC_PROFILE_SELECT = {
   id: true,
   username: true,
-  email: true,
-  first_name: true,
-  last_name: true,
-  birth_date: true,
   country: true,
   created_at: true,
   profile: {
@@ -26,21 +24,44 @@ const PROFILE_SELECT = {
   },
 }
 
+// Datos completos: sólo para el propio usuario (GET/PUT /users/me)
+const OWN_PROFILE_SELECT = {
+  ...PUBLIC_PROFILE_SELECT,
+  email: true,
+  first_name: true,
+  last_name: true,
+  birth_date: true,
+}
+
 @Injectable()
 export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   findAll() {
     return this.prisma.users.findMany({
-      select: PROFILE_SELECT,
+      select: PUBLIC_PROFILE_SELECT,
+      orderBy: { username: 'asc' },
     })
   }
 
-  findOne(id: string) {
-    return this.prisma.users.findUnique({
+  // Perfil público de otro usuario
+  async findPublic(id: string) {
+    const user = await this.prisma.users.findUnique({
       where: { id },
-      select: PROFILE_SELECT,
+      select: PUBLIC_PROFILE_SELECT,
     })
+    if (!user) throw new NotFoundException('Usuario no encontrado')
+    return user
+  }
+
+  // Perfil completo del usuario logueado
+  async findOwn(id: string) {
+    const user = await this.prisma.users.findUnique({
+      where: { id },
+      select: OWN_PROFILE_SELECT,
+    })
+    if (!user) throw new NotFoundException('Usuario no encontrado')
+    return user
   }
 
   update(
@@ -60,7 +81,7 @@ export class UsersService {
           },
         },
       },
-      select: PROFILE_SELECT,
+      select: OWN_PROFILE_SELECT,
     })
   }
 }

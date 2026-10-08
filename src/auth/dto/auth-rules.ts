@@ -14,7 +14,13 @@ export const MIN_AGE = 13;
 export const NormalizeEmail = () =>
   Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toLowerCase() : value));
 
-export const Trim = () => Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value));
+// Para campos opcionales: saca espacios y trata "" como "no enviado" (el formulario manda "" si se deja vacío)
+export const TrimOrUndefined = () =>
+  Transform(({ value }: { value: unknown }) => {
+    if (typeof value !== 'string') return value;
+    const trimmed = value.trim();
+    return trimmed === '' ? undefined : trimmed;
+  });
 
 export function ageFrom(birthDate: string, today = new Date()): number {
   const birth = new Date(birthDate);

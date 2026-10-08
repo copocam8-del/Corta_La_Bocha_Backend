@@ -5,7 +5,7 @@ import {
   NormalizeEmail,
   PASSWORD_MAX,
   PASSWORD_MIN,
-  Trim,
+  TrimOrUndefined,
   USERNAME_MAX,
   USERNAME_MIN,
   USERNAME_REGEX,
@@ -21,19 +21,19 @@ export class RegisterDto {
   })
   @IsString({ message: 'El nombre de usuario debe ser texto' })
   @IsOptional()
-  @Trim()
+  @TrimOrUndefined()
   username?: string;
 
   @MaxLength(50, { message: 'El nombre puede tener hasta 50 caracteres' })
   @IsString({ message: 'El nombre debe ser texto' })
   @IsOptional()
-  @Trim()
+  @TrimOrUndefined()
   name?: string;
 
   @MaxLength(50, { message: 'El apellido puede tener hasta 50 caracteres' })
   @IsString({ message: 'El apellido debe ser texto' })
   @IsOptional()
-  @Trim()
+  @TrimOrUndefined()
   lastName?: string;
 
   @MinAge(MIN_AGE, { message: `Tenés que tener al menos ${MIN_AGE} años para registrarte` })
@@ -44,6 +44,7 @@ export class RegisterDto {
   @MaxLength(56, { message: 'El país puede tener hasta 56 caracteres' })
   @IsString({ message: 'El país debe ser texto' })
   @IsOptional()
+  @TrimOrUndefined()
   country?: string;
 
   @MaxLength(255, { message: 'El email es demasiado largo' })

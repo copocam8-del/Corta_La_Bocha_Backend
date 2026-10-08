@@ -6,6 +6,12 @@ import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
 
+// bcrypt real, pero con compare "espiable" para comprobar que siempre se llama
+jest.mock('bcrypt', () => {
+  const real = jest.requireActual('bcrypt');
+  return { ...real, compare: jest.fn((pass: string, hash: string) => real.compare(pass, hash)) };
+});
+
 describe('AuthService', () => {
   let service: AuthService;
   const prisma = {
@@ -72,6 +78,41 @@ describe('AuthService', () => {
       );
     });
 
+    it('rechaza un usuario que sólo difiere en mayúsculas de uno existente', async () => {
+      prisma.users.findFirst
+        .mockResolvedValueOnce(null) // email libre
+        .mockResolvedValueOnce({ id: 'otro' }); // "MESSI_10" ya existe como "messi_10"
+
+      await expect(service.register({ ...registro, username: 'MESSI_10' })).rejects.toThrow(
+        new ConflictException('Nombre de usuario ya en uso'),
+      );
+      expect(prisma.users.findFirst).toHaveBeenLastCalledWith({
+        where: { username: { equals: 'MESSI_10', mode: 'insensitive' } },
+        select: { id: true },
+      });
+    });
+
+    it('sin usuario genera uno de al menos 3 caracteres a partir del nombre', async () => {
+      prisma.users.findFirst.mockResolvedValue(null);
+      prisma.users.create.mockResolvedValue({ id: 'u1', username: 'x' });
+
+      await service.register({ ...registro, username: undefined, name: 'Al' });
+
+      expect(prisma.users.create.mock.calls[0][0].data.username).toBe('jugadoral');
+    });
+
+    it('si el usuario generado ya existe le agrega un número', async () => {
+      prisma.users.findFirst
+        .mockResolvedValueOnce(null) // email libre
+        .mockResolvedValueOnce({ id: 'otro' }) // "lionel" ocupado
+        .mockResolvedValueOnce(null); // "lionel1" libre
+      prisma.users.create.mockResolvedValue({ id: 'u1', username: 'x' });
+
+      await service.register({ ...registro, username: undefined, name: 'Lionel' });
+
+      expect(prisma.users.create.mock.calls[0][0].data.username).toBe('lionel1');
+    });
+
     it('no oculta otros errores de la base', async () => {
       prisma.users.findFirst.mockResolvedValue(null);
       prisma.users.findUnique.mockResolvedValue(null);
@@ -92,6 +133,15 @@ describe('AuthService', () => {
         where: { email: { equals: 'leo@mail.com', mode: 'insensitive' } },
       });
       expect(res.access_token).toBe('token-falso');
+    });
+
+    it('con un email inexistente igual compara la contraseña (mismo tiempo de respuesta) y da 401', async () => {
+      prisma.users.findFirst.mockResolvedValue(null);
+
+      await expect(service.login({ email: 'nadie@mail.com', password: 'loquesea' })).rejects.toThrow(
+        UnauthorizedException,
+      );
+      expect(bcrypt.compare).toHaveBeenCalledTimes(1);
     });
 
     it('rechaza una contraseña incorrecta con 401', async () => {

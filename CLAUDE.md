@@ -65,6 +65,12 @@ prisma/
 - `GET /auth/me` (Bearer token) → `{ userId, email }`
 - Errores: 400 `{ statusCode, message: 'Datos inválidos', errors: { campo: ['mensaje'] } }`,
   401 credenciales inválidas, 409 email o usuario repetido.
+- Límite de intentos por IP (`@nestjs/throttler`, en memoria): login 10/min, registro 5/min → 429.
+  `main.ts` tiene `trust proxy` para que Render pase la IP real.
+- En registro, usuario/nombre/apellido/país vacíos ("") cuentan como "no enviados". Si no viene usuario se
+  genera uno desde el nombre. El usuario se compara sin distinguir mayúsculas ("Messi" = "messi").
+- Privacidad: `GET /users` y `GET /users/:id` devuelven sólo datos públicos (sin email, fecha de nacimiento
+  ni nombre real). Los datos completos salen sólo en `/users/me`.
 - Reglas: contraseña de 8 a 72 caracteres, usuario de 3 a 30 (letras, números y `_`), fecha de nacimiento
   obligatoria y edad mínima de 13 años. El email se guarda en minúsculas y se busca sin distinguir mayúsculas.
 - El frontend repite estas reglas en `src/auth/rules.ts`: **si cambiás una, cambiala en los dos repos.**

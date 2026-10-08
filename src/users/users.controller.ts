@@ -1,8 +1,10 @@
 import {
   Controller,
   Get,
+  NotFoundException,
   Put,
   Param,
+  ParseUUIDPipe,
   Body,
   Request,
   UseGuards,
@@ -20,7 +22,7 @@ export class UsersController {
   // Perfil del usuario logueado (lee el id del token, no de la URL)
   @Get('me')
   getMe(@Request() req) {
-    return this.usersService.findOne(req.user.userId)
+    return this.usersService.findOwn(req.user.userId)
   }
 
   @Put('me')
@@ -28,14 +30,15 @@ export class UsersController {
     return this.usersService.update(req.user.userId, body)
   }
 
+  // Listado público: sin email, fecha de nacimiento ni nombre real
   @Get()
   findAll() {
     return this.usersService.findAll()
   }
 
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.usersService.findOne(id)
+  findOne(@Param('id', new ParseUUIDPipe({ exceptionFactory: () => new NotFoundException('Usuario no encontrado') })) id: string) {
+    return this.usersService.findPublic(id)
   }
 
   // No hay PUT ni DELETE /users/:id a propósito: cualquier usuario logueado podía editar o
