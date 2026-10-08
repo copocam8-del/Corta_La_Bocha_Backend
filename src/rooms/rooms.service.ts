@@ -1,12 +1,16 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
+import { StatsService } from '../stats/stats.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 
 @Injectable()
 export class RoomsService {
   private readonly LETTERS = 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ'.split('');
 
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private stats: StatsService,
+  ) {}
 
   private generateRoomCode(): string {
     const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
@@ -301,7 +305,7 @@ export class RoomsService {
     return vote;
   }
 
-  async tallyRoundVotes(matchId: string, roundId: string) {
+  async tallyRoundVotes(matchId: string, roundId: string, userId: string) {
     const round = await this.prisma.rounds.findUnique({
       where: { id: roundId },
       include: { match: true },
@@ -309,6 +313,19 @@ export class RoomsService {
 
     if (!round) throw new NotFoundException('Ronda no encontrada');
     if (round.match_id !== matchId) throw new BadRequestException('La ronda no pertenece a ese match');
+
+    const roomPlayer = await this.prisma.room_players.findFirst({
+      where: { user_id: userId, room_id: round.match.room_id ?? undefined },
+    });
+    if (!roomPlayer) throw new BadRequestException('No formás parte de esta partida');
+
+    // Sólo se cuenta una vez: si dos jugadores piden el conteo a la vez, el segundo no suma
+    // puntos de nuevo. Pasamos la ronda de "voting" a "tallying" de forma atómica.
+    const claimed = await this.prisma.rounds.updateMany({
+      where: { id: roundId, status: 'voting' },
+      data: { status: 'tallying' },
+    });
+    if (claimed.count === 0) throw new ConflictException('Esta ronda no está en etapa de votación');
 
     const answers = await this.prisma.answers.findMany({
       where: { round_id: roundId },
@@ -380,5 +397,67 @@ export class RoomsService {
     }
 
     return { answers: finalAnswers, pointsByRoomPlayer };
+  }
+
+  /**
+   * Termina una partida multijugador: decide el ganador y actualiza las estadísticas de
+   * todos los jugadores de la sala (partidas jugadas/ganadas y rachas). Los puntos ya se
+   * sumaron ronda por ronda en tallyRoundVotes, así que acá no se vuelven a sumar.
+   * Si hay empate en el primer puesto, ganan todos los empatados (siempre que hayan sumado puntos).
+   */
+  async finishMatch(roomCode: string, matchId: string, userId: string) {
+    const room = await this.prisma.rooms.findUnique({
+      where: { room_code: roomCode.toUpperCase() },
+      include: { room_players: { include: { user: { select: { id: true, username: true } } } } },
+    });
+    if (!room) throw new NotFoundException('Sala no encontrada');
+    if (!room.room_players.some((p) => p.user_id === userId)) {
+      throw new BadRequestException('No formás parte de esta sala');
+    }
+
+    const match = await this.prisma.matches.findUnique({
+      where: { id: matchId },
+      include: { rounds: { select: { id: true, status: true } } },
+    });
+    if (!match || match.room_id !== room.id) throw new NotFoundException('Partida no encontrada');
+    if (match.rounds.some((r) => r.status !== 'finished')) {
+      throw new BadRequestException('Todavía hay rondas sin terminar');
+    }
+
+    // Se termina una sola vez (evita sumar dos veces las estadísticas)
+    const claimed = await this.prisma.matches.updateMany({
+      where: { id: matchId, status: 'in_progress' },
+      data: { status: 'finished', finished_at: new Date() },
+    });
+    if (claimed.count === 0) throw new ConflictException('Esta partida ya terminó');
+
+    const answers = await this.prisma.answers.findMany({
+      where: { round: { match_id: matchId }, room_player_id: { not: null } },
+      select: { room_player_id: true, points: true },
+    });
+    const totals: Record<string, number> = {};
+    for (const p of room.room_players) totals[p.id] = 0;
+    for (const a of answers) {
+      if (a.room_player_id && a.room_player_id in totals) totals[a.room_player_id] += a.points;
+    }
+    const best = Math.max(0, ...Object.values(totals));
+
+    const standings = room.room_players
+      .map((p) => ({
+        userId: p.user_id,
+        username: p.user.username,
+        points: totals[p.id] ?? 0,
+        won: best > 0 && totals[p.id] === best,
+      }))
+      .sort((a, b) => b.points - a.points);
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const s of standings) {
+        await this.stats.recordMatchResult(s.userId, { won: s.won, points: 0 }, tx);
+      }
+      await tx.rooms.update({ where: { id: room.id }, data: { status: 'waiting' } });
+    });
+
+    return { matchId, standings };
   }
 } 
