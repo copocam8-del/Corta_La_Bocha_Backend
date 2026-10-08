@@ -72,6 +72,15 @@ prisma/
   los otros módulos). En los DTO de auth, los decoradores se evalúan de abajo hacia arriba y se muestra
   sólo el primer error, así que la regla más básica (vacío / tipo) va pegada a la propiedad.
 
+## Login con Google
+
+- `POST /auth/google` con `{ credential }` (ID token de Google Identity Services). Responde igual que
+  `/auth/login`. Lógica en `src/auth/google-auth.service.ts`:
+  1. Si ya hay un usuario con ese `google_id`, entra.
+  2. Si no, **sólo si Google dice `email_verified: true`**, se une a la cuenta con ese email o se crea una nueva
+     (sin contraseña). Un email no verificado nunca se usa para unir cuentas.
+- Sin `GOOGLE_CLIENT_ID` el endpoint responde 503 y el resto de la app funciona igual.
+
 ## Variables de entorno (ver `.env.example`)
 
 | Variable | Para qué |
@@ -81,6 +90,7 @@ prisma/
 | `JWT_EXPIRATION` | duración del token (default `7d`) |
 | `PORT` | puerto (Render lo define solo; default 3000) |
 | `CORS_ORIGIN` | opcional, orígenes separados por coma; vacío = cualquiera |
+| `GOOGLE_CLIENT_ID` | login con Google (opcional; mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend) |
 | `OPENAI_API_KEY` | validación con IA (opcional, hay fallback) |
 
 ## Reglas para trabajar

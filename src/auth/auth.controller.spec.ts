@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { GoogleAuthService } from './google-auth.service';
 import { authValidationPipe } from './auth-validation.pipe';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -40,7 +41,10 @@ describe('AuthController', () => {
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: { register: jest.fn(), login: jest.fn() } }],
+      providers: [
+        { provide: AuthService, useValue: { register: jest.fn(), login: jest.fn() } },
+        { provide: GoogleAuthService, useValue: { login: jest.fn() } },
+      ],
     }).compile();
 
     controller = module.get<AuthController>(AuthController);

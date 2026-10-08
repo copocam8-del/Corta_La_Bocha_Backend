@@ -10,7 +10,8 @@ const normalizeEmail = (email: string) => email.trim().toLowerCase();
 export class AuthService {
   constructor(private prisma: PrismaService, private jwt: JwtService) {}
 
-  private async generateUniqueUsername(base: string) {
+  // También la usa el login con Google para cuentas nuevas
+  async generateUniqueUsername(base: string) {
     const slug = base
       .toLowerCase()
       .normalize('NFD')
@@ -93,6 +94,11 @@ export class AuthService {
     const valid = await bcrypt.compare(data.password, user.password_hash);
     if (!valid) throw new UnauthorizedException('Credenciales inválidas');
 
+    return this.issueSession(user);
+  }
+
+  // Respuesta de un login exitoso (con contraseña o con Google)
+  issueSession(user: { id: string; email: string | null; username: string; first_name: string | null }) {
     const token = this.jwt.sign({ sub: user.id, email: user.email, username: user.username });
     return {
       access_token: token,
