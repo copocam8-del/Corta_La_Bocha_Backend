@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
-import { ThrottlerModule } from '@nestjs/throttler';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { GoogleAuthService } from './google-auth.service';
@@ -54,6 +54,16 @@ describe('AuthController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+});
+
+describe('límite de intentos', () => {
+  it('login, registro y Google tienen límite de intentos por IP', () => {
+    const proto = AuthController.prototype as unknown as Record<string, object>;
+    for (const metodo of ['login', 'register', 'google']) {
+      const guards = (Reflect.getMetadata('__guards__', proto[metodo]) ?? []) as unknown[];
+      expect(guards).toContain(ThrottlerGuard);
+    }
   });
 });
 

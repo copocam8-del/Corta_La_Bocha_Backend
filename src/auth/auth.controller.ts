@@ -34,6 +34,9 @@ export class AuthController {
 
   // Login (o registro) con Google. Responde igual que /auth/login.
   // Si GOOGLE_CLIENT_ID no está configurado responde 503 y el resto sigue funcionando.
+  // Máximo 10 intentos por minuto por IP, igual que el login con contraseña
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @UseGuards(ThrottlerGuard)
   @Post('google')
   google(@Body() body: GoogleLoginDto) {
     return this.googleAuthService.login(body.credential);
