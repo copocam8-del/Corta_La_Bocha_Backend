@@ -78,6 +78,27 @@ prisma/
   los otros módulos). En los DTO de auth, los decoradores se evalúan de abajo hacia arriba y se muestra
   sólo el primer error, así que la regla más básica (vacío / tipo) va pegada a la propiedad.
 
+## Perfil, estadísticas y ranking
+
+- `src/stats/stats.service.ts` es el **único** lugar que modifica partidas jugadas/ganadas, puntos y rachas
+  (`recordMatchResult`). También calcula el ranking (`getUserRanking`, `getTopPlayers`).
+- Partida solo (la que usa el frontend): `POST /solo-matches/quick` (el servidor sortea letra y arma el plan de la
+  máquina) y `POST /solo-matches/quick/:matchId/finish` (valida respuestas, decide el resultado y suma
+  estadísticas una sola vez). Las reglas están en `src/solo-matches/solo-quick.ts`.
+- Multijugador: `POST /rooms/:code/matches/:matchId/rounds/:roundId/tally` suma puntos una sola vez por ronda y
+  `POST /rooms/:code/matches/:matchId/finish` decide el ganador y suma partidas/victorias/rachas.
+  **El frontend multijugador todavía es una simulación y no llama a estos endpoints.**
+- Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
+  (mismo set en el frontend). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
+
+## Logros
+
+- Definiciones en `src/achievements/achievements.definitions.ts` (12 logros, condición = función sobre las
+  estadísticas y la partida). En la base (`user_achievements`) sólo se guarda cuál y cuándo.
+  **Nunca cambies el id de un logro existente.**
+- Se otorgan al terminar una partida (solo o multijugador), dentro de la misma transacción que las
+  estadísticas (`AchievementsService.unlockFor`). `GET /users/me/achievements` los lista todos.
+
 ## Variables de entorno (ver `.env.example`)
 
 | Variable | Para qué |

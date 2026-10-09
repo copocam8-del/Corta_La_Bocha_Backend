@@ -26,8 +26,9 @@ model users {
   profile      profiles?
   room_players room_players[]
   votes        votes[]
+  solo_matches matches[]
+  achievements user_achievements[]
 }
-
 
 model profiles {
   id               String  @id @default(uuid()) @db.Uuid
@@ -37,7 +38,8 @@ model profiles {
   favorite_player  String? @db.VarChar(100)
 
   // Perfil público / personalización
-  avatar_url String?
+  avatar_url String? // en desuso: el avatar ahora se elige de un set propio (avatar_id)
+  avatar_id  String? @db.VarChar(30)
   bio        String? @db.VarChar(160)
 
   matches_played  Int @default(0)
@@ -45,8 +47,22 @@ model profiles {
   tournaments_won Int @default(0)
   total_points    Int @default(0)
   best_streak     Int @default(0)
+  current_streak  Int @default(0)
 
   user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+// Logros desbloqueados. Las definiciones (nombre, descripción, condición) están en
+// src/achievements/achievements.definitions.ts; acá sólo se guarda cuál y cuándo.
+model user_achievements {
+  id             String   @id @default(uuid()) @db.Uuid
+  user_id        String   @db.Uuid
+  achievement_id String   @db.VarChar(40)
+  unlocked_at    DateTime @default(now()) @db.Timestamp(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, achievement_id])
 }
 
 // ============================================
@@ -86,14 +102,22 @@ model room_players {
 model matches {
   id            String    @id @default(uuid()) @db.Uuid
   room_id       String?   @db.Uuid
+  // Dueño de una partida solo (vs. IA); en multijugador los jugadores salen de room_players
+  user_id       String?   @db.Uuid
   mode          String    @default("multiplayer") @db.VarChar(20)
   ai_difficulty String?   @db.VarChar(20)
+  // Partida solo: temática elegida y duración de la ronda (para recalcular la IA en el servidor)
+  tematica      String?   @db.VarChar(30)
+  round_seconds Int?
   status        String    @default("in_progress") @db.VarChar(20)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
   finished_at   DateTime?
 
   room   rooms?   @relation(fields: [room_id], references: [id], onDelete: SetNull)
+  user   users?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
   rounds rounds[]
+
+  @@index([user_id])
 }
 
 model rounds {

@@ -1,5 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common'
+import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
+import { UpdateProfileDto } from './dto/update-profile.dto'
 
 // Lo que cualquier usuario logueado puede ver de otro: sin email, fecha de nacimiento
 // ni nombre y apellido reales (puede haber menores de edad registrados).
@@ -10,7 +12,7 @@ const PUBLIC_PROFILE_SELECT = {
   created_at: true,
   profile: {
     select: {
-      avatar_url: true,
+      avatar_id: true,
       bio: true,
       favorite_team: true,
       favorite_country: true,
@@ -20,6 +22,7 @@ const PUBLIC_PROFILE_SELECT = {
       tournaments_won: true,
       total_points: true,
       best_streak: true,
+      current_streak: true,
     },
   },
 }
@@ -64,24 +67,38 @@ export class UsersService {
     return user
   }
 
-  update(
-    id: string,
-    data: { username?: string; bio?: string; avatar_url?: string; favorite_team?: string },
-  ) {
+  async update(id: string, data: UpdateProfileDto) {
     const { username, ...profileFields } = data
 
-    return this.prisma.users.update({
-      where: { id },
-      data: {
-        ...(username ? { username } : {}),
-        profile: {
-          upsert: {
-            create: profileFields,
-            update: profileFields,
+    if (username) {
+      // "Messi" y "messi" cuentan como el mismo nombre de usuario
+      const taken = await this.prisma.users.findFirst({
+        where: { username: { equals: username, mode: 'insensitive' }, NOT: { id } },
+        select: { id: true },
+      })
+      if (taken) throw new ConflictException('Nombre de usuario ya en uso')
+    }
+
+    try {
+      return await this.prisma.users.update({
+        where: { id },
+        data: {
+          ...(username ? { username } : {}),
+          profile: {
+            upsert: {
+              create: profileFields,
+              update: profileFields,
+            },
           },
         },
-      },
-      select: OWN_PROFILE_SELECT,
-    })
+        select: OWN_PROFILE_SELECT,
+      })
+    } catch (e) {
+      // Dos usuarios eligiendo el mismo nombre a la vez: la base frena el segundo
+      if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === 'P2002') {
+        throw new ConflictException('Nombre de usuario ya en uso')
+      }
+      throw e
+    }
   }
 }
