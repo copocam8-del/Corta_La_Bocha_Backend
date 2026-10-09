@@ -3,6 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
+import { GoogleAuthService } from './google-auth.service';
 import { authValidationPipe } from './auth-validation.pipe';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -42,7 +43,10 @@ describe('AuthController', () => {
     const module: TestingModule = await Test.createTestingModule({
       imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])],
       controllers: [AuthController],
-      providers: [{ provide: AuthService, useValue: { register: jest.fn(), login: jest.fn() } }],
+      providers: [
+        { provide: AuthService, useValue: { register: jest.fn(), login: jest.fn() } },
+        { provide: GoogleAuthService, useValue: { login: jest.fn() } },
+      ],
     }).compile();
 
     controller = module.get<AuthController>(AuthController);

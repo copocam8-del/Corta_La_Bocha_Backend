@@ -20,6 +20,8 @@ model users {
   country       String?   @db.VarChar(56)
   email         String?   @unique @db.VarChar(255)
   password_hash String?
+  // Id de la cuenta de Google (campo "sub" del ID token) si entró con Google
+  google_id     String?   @unique @db.VarChar(255)
   is_guest      Boolean   @default(false)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
 
