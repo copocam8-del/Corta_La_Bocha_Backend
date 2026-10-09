@@ -108,9 +108,19 @@ export class RoomsController {
     @Param('code') code: string,
     @Param('matchId') matchId: string,
     @Param('roundId') roundId: string,
+    @Request() req,
   ) {
-    const result = await this.roomsService.tallyRoundVotes(matchId, roundId);
+    const result = await this.roomsService.tallyRoundVotes(matchId, roundId, req.user.userId);
     this.roomsGateway.emitToRoom(code.toUpperCase(), 'round_finished', result);
+    return result;
+  }
+
+  // Termina la partida: ganador + estadísticas de todos los jugadores (una sola vez)
+  @UseGuards(AuthGuard('jwt'))
+  @Post(':code/matches/:matchId/finish')
+  async finishMatch(@Param('code') code: string, @Param('matchId') matchId: string, @Request() req) {
+    const result = await this.roomsService.finishMatch(code, matchId, req.user.userId);
+    this.roomsGateway.emitToRoom(code.toUpperCase(), 'match_finished', result);
     return result;
   }
 

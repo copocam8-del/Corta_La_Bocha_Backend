@@ -65,12 +65,48 @@ prisma/
 - `GET /auth/me` (Bearer token) → `{ userId, email }`
 - Errores: 400 `{ statusCode, message: 'Datos inválidos', errors: { campo: ['mensaje'] } }`,
   401 credenciales inválidas, 409 email o usuario repetido.
+- Límite de intentos por IP (`@nestjs/throttler`, en memoria): login 10/min, registro 5/min → 429.
+  `main.ts` tiene `trust proxy` para que Render pase la IP real.
+- En registro, usuario/nombre/apellido/país vacíos ("") cuentan como "no enviados". Si no viene usuario se
+  genera uno desde el nombre. El usuario se compara sin distinguir mayúsculas ("Messi" = "messi").
+- Privacidad: `GET /users` y `GET /users/:id` devuelven sólo datos públicos (sin email, fecha de nacimiento
+  ni nombre real). Los datos completos salen sólo en `/users/me`.
 - Reglas: contraseña de 8 a 72 caracteres, usuario de 3 a 30 (letras, números y `_`), fecha de nacimiento
   obligatoria y edad mínima de 13 años. El email se guarda en minúsculas y se busca sin distinguir mayúsculas.
 - El frontend repite estas reglas en `src/auth/rules.ts`: **si cambiás una, cambiala en los dos repos.**
 - No hay `ValidationPipe` global: sólo `/auth` valida los DTO (decisión a propósito, para no romper
   los otros módulos). En los DTO de auth, los decoradores se evalúan de abajo hacia arriba y se muestra
   sólo el primer error, así que la regla más básica (vacío / tipo) va pegada a la propiedad.
+
+## Perfil, estadísticas y ranking
+
+- `src/stats/stats.service.ts` es el **único** lugar que modifica partidas jugadas/ganadas, puntos y rachas
+  (`recordMatchResult`). También calcula el ranking (`getUserRanking`, `getTopPlayers`).
+- Partida solo (la que usa el frontend): `POST /solo-matches/quick` (el servidor sortea letra y arma el plan de la
+  máquina) y `POST /solo-matches/quick/:matchId/finish` (valida respuestas, decide el resultado y suma
+  estadísticas una sola vez). Las reglas están en `src/solo-matches/solo-quick.ts`.
+- Multijugador: `POST /rooms/:code/matches/:matchId/rounds/:roundId/tally` suma puntos una sola vez por ronda y
+  `POST /rooms/:code/matches/:matchId/finish` decide el ganador y suma partidas/victorias/rachas.
+  **El frontend multijugador todavía es una simulación y no llama a estos endpoints.**
+- Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
+  (mismo set en el frontend). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
+
+## Logros
+
+- Definiciones en `src/achievements/achievements.definitions.ts` (12 logros, condición = función sobre las
+  estadísticas y la partida). En la base (`user_achievements`) sólo se guarda cuál y cuándo.
+  **Nunca cambies el id de un logro existente.**
+- Se otorgan al terminar una partida (solo o multijugador), dentro de la misma transacción que las
+  estadísticas (`AchievementsService.unlockFor`). `GET /users/me/achievements` los lista todos.
+
+## Login con Google
+
+- `POST /auth/google` con `{ credential }` (ID token de Google Identity Services). Responde igual que
+  `/auth/login`. Lógica en `src/auth/google-auth.service.ts`:
+  1. Si ya hay un usuario con ese `google_id`, entra.
+  2. Si no, **sólo si Google dice `email_verified: true`**, se une a la cuenta con ese email o se crea una nueva
+     (sin contraseña). Un email no verificado nunca se usa para unir cuentas.
+- Sin `GOOGLE_CLIENT_ID` el endpoint responde 503 y el resto de la app funciona igual.
 
 ## Variables de entorno (ver `.env.example`)
 
@@ -81,6 +117,7 @@ prisma/
 | `JWT_EXPIRATION` | duración del token (default `7d`) |
 | `PORT` | puerto (Render lo define solo; default 3000) |
 | `CORS_ORIGIN` | opcional, orígenes separados por coma; vacío = cualquiera |
+| `GOOGLE_CLIENT_ID` | login con Google (opcional; mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend) |
 | `OPENAI_API_KEY` | validación con IA (opcional, hay fallback) |
 
 ## Reglas para trabajar
