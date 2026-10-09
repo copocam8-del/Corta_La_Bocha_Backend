@@ -1,5 +1,6 @@
 import { Controller, Post, Get, Body, UseGuards, Request, UsePipes } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -10,11 +11,17 @@ import { authValidationPipe } from './auth-validation.pipe';
 export class AuthController {
   constructor(private readonly authService: AuthService) {}
 
+  // Máximo 5 registros por minuto por IP
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseGuards(ThrottlerGuard)
   @Post('register')
   register(@Body() body: RegisterDto) {
     return this.authService.register(body);
   }
 
+  // Máximo 10 intentos de login por minuto por IP (frena a quien prueba contraseñas)
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @UseGuards(ThrottlerGuard)
   @Post('login')
   login(@Body() body: LoginDto) {
     return this.authService.login(body);

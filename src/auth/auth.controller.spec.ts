@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException } from '@nestjs/common';
+import { ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { authValidationPipe } from './auth-validation.pipe';
@@ -39,6 +40,7 @@ describe('AuthController', () => {
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])],
       controllers: [AuthController],
       providers: [{ provide: AuthService, useValue: { register: jest.fn(), login: jest.fn() } }],
     }).compile();
@@ -56,6 +58,18 @@ describe('Validación de /auth/register', () => {
     const { dto, errors } = await validate(RegisterDto, { ...registroValido, email: ' Leo@Mail.com ' });
     expect(errors).toBeUndefined();
     expect(dto!.email).toBe('leo@mail.com');
+  });
+
+  it('trata el usuario vacío ("") como no enviado', async () => {
+    const { dto, errors } = await validate(RegisterDto, { ...registroValido, username: '   ' });
+    expect(errors).toBeUndefined();
+    expect(dto!.username).toBeUndefined();
+  });
+
+  it('trata nombre, apellido y país vacíos como no enviados', async () => {
+    const { dto, errors } = await validate(RegisterDto, { ...registroValido, name: '', lastName: '', country: '' });
+    expect(errors).toBeUndefined();
+    expect(dto).toMatchObject({ name: undefined, lastName: undefined, country: undefined });
   });
 
   it('descarta campos que no están en el DTO', async () => {

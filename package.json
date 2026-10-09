@@ -27,6 +27,7 @@
     "@nestjs/passport": "^11.0.5",
     "@nestjs/platform-express": "^11.0.1",
     "@nestjs/platform-socket.io": "^11.1.27",
+    "@nestjs/throttler": "6.7.0",
     "@nestjs/websockets": "^11.1.27",
     "@prisma/client": "^5.22.0",
     "bcrypt": "^6.0.0",
@@ -87,4 +88,4 @@
   "prisma": {
     "seed": "ts-node prisma/seed.ts"
   }
-} 
+}
