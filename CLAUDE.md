@@ -11,7 +11,8 @@ Hablá en español rioplatense y explicá simple: el equipo está aprendiendo.
 - **NestJS 11** + TypeScript, **Prisma 5** + **PostgreSQL**
 - Auth con **JWT** (`@nestjs/jwt` + `passport-jwt`), contraseñas con **bcrypt**
 - Tiempo real con **Socket.IO** (`src/rooms/rooms.gateway.ts`)
-- Validación de respuestas con IA (OpenAI, con fallback si no hay `OPENAI_API_KEY`) en `src/tutti-frutti/`
+- Validación de respuestas con IA (OpenAI `gpt-4o-mini`) en `src/tutti-frutti/`. Sin IA las respuestas quedan
+  "sin validar" (0 puntos): nunca se aceptan por defecto
 - Deploy en **Render** (`https://corta-la-bocha-backend.onrender.com`)
 
 > Ojo: varios archivos de `docs/` (`STACK.md`, `API_GUIDELINES.md`, partes de `ARCHITECTURE.md`) y las
@@ -49,13 +50,13 @@ src/
   users/               perfil (/users/me)
   rooms/               salas multijugador + gateway Socket.IO
   solo-matches/        partidas contra la IA
-  tutti-frutti/        validación de respuestas (IA)
+  tutti-frutti/        validación de respuestas (reglas en código + IA) y puntaje (scoring.ts)
   categories/          listado de categorías
   prisma/              PrismaModule (global) + PrismaService: una sola conexión para toda la app
 prisma/
   schema.prisma        modelos (users, profiles, rooms, matches, rounds, answers, votes, categories, seasons)
   migrations/          migraciones (nunca editar una ya aplicada)
-  seed.ts              categorías; los nombres deben coincidir con VALID_CATEGORIES de tutti-frutti.service.ts
+  seed.ts              categorías; los nombres deben coincidir con CATEGORY_RULES de tutti-frutti.service.ts
 ```
 
 ## Auth: cómo funciona
@@ -91,6 +92,30 @@ prisma/
 - Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
   (mismo set en el frontend). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
 
+## Validación de respuestas y puntaje
+
+1. **En código, antes de la IA** (`src/tutti-frutti/answer-rules.ts`): que no esté vacía, que tenga al menos 2 letras
+   y que empiece con la letra. Se ignoran tildes, mayúsculas y signos. Con artículo ("La Bombonera") vale la letra
+   del artículo o la de la palabra siguiente. "Estadio", "Clásico", "Derbi" y "de" **nunca** cuentan en sus categorías.
+2. **Con IA, una sola llamada por ronda** (`TuttiFruttiValidatorService.validateAnswers`): todas las respuestas
+   (de todos los jugadores, incluida la máquina) van juntas, **como datos JSON** en el mensaje del usuario; el prompt
+   de sistema dice que nunca se obedezcan instrucciones escritas en una respuesta. Devuelve por cada una `isValid`,
+   `canonical` (nombre "oficial", ej. "mesi" → "Lionel Messi") y `reason` en español.
+   - El schema es `strict`: **todos** los objetos necesitan `additionalProperties: false` (si no, OpenAI responde 400).
+   - Caché en memoria por (categoría, letra, respuesta normalizada), hasta 5000 entradas.
+   - Si OpenAI falla, reintenta una vez. Si vuelve a fallar → `status: 'unverified'`, 0 puntos. Una partida solo con
+     respuestas sin validar se termina pero **no cuenta** para estadísticas, ranking ni logros.
+3. **Puntaje** (`src/tutti-frutti/scoring.ts`, lo usan la partida solo y el multijugador): por categoría, 20 si es el
+   único con respuesta válida, 10 si es válida y nadie puso la misma (se compara el nombre canónico), 5 si otro puso
+   la misma, 0 si no vale. En la partida solo, la máquina es un jugador más.
+4. **Máquina rival**: responde desde `src/solo-matches/ai-answer-bank.ts` (por categoría y letra, sólo nombres reales;
+   celdas vacías si no hay ninguno conocido). La dificultad cambia cuántas sabe y qué tan rápido escribe
+   (`DIFICULTADES` en `solo-quick.ts`). Sus respuestas pasan por la misma validación y el mismo puntaje.
+   **Si agregás una respuesta al banco, corré `npx jest ai-answer-bank`** (verifica letra y duplicados).
+   "Jugador Promesa" envejece: revisarla cada temporada.
+- `POST /tutti-frutti/validate-round` (una ronda suelta) pide sesión y tiene límite de 20 por minuto: cada llamada
+  puede gastar OpenAI.
+
 ## Logros
 
 - Definiciones en `src/achievements/achievements.definitions.ts` (12 logros, condición = función sobre las
@@ -118,7 +143,7 @@ prisma/
 | `PORT` | puerto (Render lo define solo; default 3000) |
 | `CORS_ORIGIN` | opcional, orígenes separados por coma; vacío = cualquiera |
 | `GOOGLE_CLIENT_ID` | login con Google (opcional; mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend) |
-| `OPENAI_API_KEY` | validación con IA (opcional, hay fallback) |
+| `OPENAI_API_KEY` | validación con IA. Sin ella, todas las respuestas quedan "sin validar" (0 puntos) |
 
 ## Reglas para trabajar
 

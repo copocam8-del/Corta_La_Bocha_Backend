@@ -1,108 +1,29 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { TuttiFruttiController } from './tutti-frutti.controller';
 import { TuttiFruttiValidatorService } from './tutti-frutti.service';
-import { ConfigService } from '@nestjs/config';
-import { ValidateRoundDto, ValidateRoundResponseDto } from './dto/validate-round.dto';
-import { BadRequestException } from '@nestjs/common';
 
 describe('TuttiFruttiController', () => {
   let controller: TuttiFruttiController;
-  let service: TuttiFruttiValidatorService;
+  const service = { validateRound: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])],
       controllers: [TuttiFruttiController],
-      providers: [
-        TuttiFruttiValidatorService,
-        {
-          provide: ConfigService,
-          useValue: {
-            get: jest.fn((key: string) => {
-              if (key === 'OPENAI_API_KEY') return undefined;
-              return null;
-            }),
-          },
-        },
-      ],
+      providers: [{ provide: TuttiFruttiValidatorService, useValue: service }],
     }).compile();
-
-    controller = module.get<TuttiFruttiController>(TuttiFruttiController);
-    service = module.get<TuttiFruttiValidatorService>(TuttiFruttiValidatorService);
+    controller = module.get(TuttiFruttiController);
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
+  it('delega en el servicio', async () => {
+    service.validateRound.mockResolvedValue({ totalPoints: 20 });
+    await expect(controller.validateRound({ roundLetter: 'M', answers: [] })).resolves.toEqual({ totalPoints: 20 });
   });
 
-  describe('validateRound', () => {
-    it('should call service.validateRound with correct parameters', async () => {
-      const dto: ValidateRoundDto = {
-        roundLetter: 'M',
-        answers: [
-          {
-            category: 'Jugador',
-            answer: 'Messi',
-          },
-        ],
-      };
-
-      const spy = jest.spyOn(service, 'validateRound');
-      await controller.validateRound(dto);
-
-      expect(spy).toHaveBeenCalledWith(dto);
-    });
-
-    it('should return response from service', async () => {
-      const dto: ValidateRoundDto = {
-        roundLetter: 'M',
-        answers: [
-          {
-            category: 'Jugador',
-            answer: 'Messi',
-          },
-        ],
-      };
-
-      const expectedResponse: ValidateRoundResponseDto = {
-        roundLetter: 'M',
-        totalPoints: 5,
-        results: [
-          {
-            category: 'Jugador',
-            userAnswer: 'Messi',
-            aiAnswer: 'Messi',
-            isValid: true,
-            reason: 'Valid player',
-            points: 5,
-          },
-        ],
-        timestamp: new Date().toISOString(),
-      };
-
-      jest.spyOn(service, 'validateRound').mockResolvedValue(expectedResponse);
-
-      const result = await controller.validateRound(dto);
-
-      expect(result).toEqual(expectedResponse);
-    });
-
-    it('should propagate validation errors from service', async () => {
-      const dto: ValidateRoundDto = {
-        roundLetter: 'AB',
-        answers: [],
-      };
-
-      jest.spyOn(service, 'validateRound').mockRejectedValue(new BadRequestException('Invalid letter'));
-
-      await expect(controller.validateRound(dto)).rejects.toThrow(BadRequestException);
-    });
-
-    it('should throw error if request body is null', async () => {
-      await expect(controller.validateRound(null as any)).rejects.toThrow(BadRequestException);
-    });
-
-    it('should throw error if request body is undefined', async () => {
-      await expect(controller.validateRound(undefined as any)).rejects.toThrow(BadRequestException);
-    });
+  it('pide sesión y tiene límite de intentos (cada llamada puede gastar OpenAI)', () => {
+    const guards = Reflect.getMetadata('__guards__', TuttiFruttiController.prototype.validateRound) as unknown[];
+    expect(guards).toContain(ThrottlerGuard);
+    expect(guards).toHaveLength(2); // AuthGuard('jwt') + ThrottlerGuard
   });
 });

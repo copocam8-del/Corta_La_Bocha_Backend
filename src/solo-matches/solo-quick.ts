@@ -1,3 +1,5 @@
+import { AI_ANSWER_BANK } from './ai-answer-bank';
+
 // Reglas de la partida rápida contra la máquina (una ronda), decididas en el servidor.
 // Antes vivían en el frontend (Game.tsx); se movieron acá para que nadie pueda inventarse
 // una victoria desde el navegador.
@@ -10,11 +12,15 @@ export const TEMATICAS: Record<string, string[]> = {
   libertadores: ['Jugador', 'DT', 'Equipo', 'Goleador', 'Jugador Histórico', 'Equipo Campeón', 'Clásico'],
 };
 
+// Qué tan buena es la máquina en cada dificultad:
+//   sabe      → probabilidad de que sepa una respuesta para cada categoría (si el banco tiene alguna)
+//   primeraMs → cuándo escribe su primera respuesta; entreMs → cada cuánto escribe las siguientes
+//   azarMs    → variación al azar para que no escriba como un reloj
 export const DIFICULTADES = {
-  facil: { delayMs: 15000, errores: 0.4 },
-  medio: { delayMs: 8000, errores: 0.2 },
-  dificil: { delayMs: 4000, errores: 0.1 },
-  experto: { delayMs: 2000, errores: 0 },
+  facil: { sabe: 0.5, primeraMs: 15000, entreMs: 6000, azarMs: 4000 },
+  medio: { sabe: 0.7, primeraMs: 9000, entreMs: 4000, azarMs: 3000 },
+  dificil: { sabe: 0.85, primeraMs: 5000, entreMs: 2500, azarMs: 2000 },
+  experto: { sabe: 0.97, primeraMs: 2500, entreMs: 1500, azarMs: 1000 },
 } as const;
 
 export type Dificultad = keyof typeof DIFICULTADES;
@@ -23,19 +29,6 @@ export const ROUND_SECONDS = [60, 120] as const;
 
 // Letras que se sortean (las mismas que usaba el frontend)
 export const LETRAS = 'ABCDEFLMNOPRSTV'.split('');
-
-// Respuestas que "sabe" la máquina, por letra. Para letras sin lista, la máquina no responde.
-const IA_RESPUESTAS: Record<string, string[]> = {
-  A: ['Agüero', 'Ajax', 'Ancelotti', 'Argentina', 'Abidal', 'Ayala', 'Aimar'],
-  B: ['Benzema', 'Barcelona', 'Bielsa', 'Brasil', 'Busquets', 'Batistuta', 'Banega'],
-  C: ['Cristiano', 'Chelsea', 'Capello', 'Colombia', 'Casillas', 'Caniggia', 'Crespo'],
-  D: ['Di María', 'Dortmund', 'Del Bosque', 'Dinamarca', 'Drogba', "D'Alessandro", 'Díaz'],
-  M: ['Messi', 'Manchester', 'Mourinho', 'México', 'Maldini', 'Maradona', 'Mascherano'],
-  R: ['Ronaldo', 'Real Madrid', 'Rijkaard', 'Rumania', 'Ramos', 'Redondo', 'Riquelme'],
-  S: ['Suárez', 'Sevilla', 'Scolari', 'Serbia', 'Schmeichel', 'Simeone', 'Saviola'],
-  T: ['Tevez', 'Tottenham', 'Tuchel', 'Túnez', 'Terry', 'Trezeguet', 'Tapia'],
-  V: ['Vinicius', 'Valencia', 'Valdano', 'Venezuela', 'Vidal', 'Verón', 'Vargas'],
-};
 
 export interface AiPlanItem {
   category: string;
@@ -60,16 +53,20 @@ export function seededRandom(seed: string): () => number {
   };
 }
 
+// Plan de la máquina: para cada categoría, qué responde (del banco, según categoría y letra) y
+// cuándo. Con la misma semilla (id de partida) da siempre el mismo plan.
 export function buildAiPlan(seed: string, letter: string, categories: string[], dificultad: Dificultad): AiPlanItem[] {
   const random = seededRandom(seed);
-  const config = DIFICULTADES[dificultad];
-  const pool = IA_RESPUESTAS[letter] ?? [];
+  const config = DIFICULTADES[dificultad] ?? DIFICULTADES.medio;
   return categories.map((category, i) => {
-    const fails = random() < config.errores;
+    const options = AI_ANSWER_BANK[category]?.[letter] ?? [];
+    const knows = options.length > 0 && random() < config.sabe;
+    const pick = options[Math.floor(random() * options.length)];
+    const jitter = Math.floor(random() * config.azarMs);
     return {
       category,
-      answer: fails ? null : (pool[i] ?? null),
-      delayMs: config.delayMs + i * 1500,
+      answer: knows ? pick : null,
+      delayMs: config.primeraMs + i * config.entreMs + jitter,
     };
   });
 }
@@ -81,22 +78,6 @@ export function revealedAiAnswers(plan: AiPlanItem[], elapsedMs: number): Record
     if (item.answer && item.delayMs <= elapsedMs) revealed[item.category] = item.answer;
   }
   return revealed;
-}
-
-export const normalizeAnswer = (s: string | null | undefined) =>
-  (s ?? '')
-    .trim()
-    .toLowerCase()
-    .normalize('NFD')
-    .replace(/[̀-ͯ]/g, '');
-
-// Puntaje de la máquina: 10 por respuesta, 5 si coincide con la del jugador
-export function scoreAi(aiAnswers: Record<string, string>, playerAnswers: Record<string, string | null>): number {
-  let points = 0;
-  for (const [category, answer] of Object.entries(aiAnswers)) {
-    points += normalizeAnswer(answer) === normalizeAnswer(playerAnswers[category]) ? 5 : 10;
-  }
-  return points;
 }
 
 export type Outcome = 'win' | 'draw' | 'loss';

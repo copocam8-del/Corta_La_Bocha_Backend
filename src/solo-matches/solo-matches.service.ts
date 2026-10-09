@@ -3,15 +3,8 @@ import { PrismaService } from '../prisma/prisma.service';
 import { TuttiFruttiValidatorService } from '../tutti-frutti/tutti-frutti.service';
 import { StatsService } from '../stats/stats.service';
 import { AchievementsService } from '../achievements/achievements.service';
-import {
-  buildAiPlan,
-  Dificultad,
-  LETRAS,
-  outcomeOf,
-  revealedAiAnswers,
-  scoreAi,
-  TEMATICAS,
-} from './solo-quick';
+import { buildAiPlan, Dificultad, LETRAS, outcomeOf, revealedAiAnswers, TEMATICAS } from './solo-quick';
+import { scoreRound, type CategoryEntry } from '../tutti-frutti/scoring';
 
 @Injectable()
 export class SoloMatchesService {
@@ -86,21 +79,62 @@ export class SoloMatchesService {
         playerAnswers[c] = sent ? sent : null;
       }
 
-      const validation = await this.aiValidator.validateRound({
-        roundLetter: round.letter,
-        answers: categories.map((c) => ({ category: c, answer: playerAnswers[c] })),
-      });
-      const playerPoints = validation.totalPoints;
-
       // La máquina tuvo el tiempo real que pasó (medido acá), con tope en la duración de la ronda
       const elapsedMs = Math.min(
         Date.now() - round.started_at.getTime(),
         (match.round_seconds ?? 60) * 1000,
       );
       const plan = buildAiPlan(match.id, round.letter, categories, (match.ai_difficulty ?? 'medio') as Dificultad);
-      const aiAnswers = revealedAiAnswers(plan, elapsedMs);
-      const aiPoints = scoreAi(aiAnswers, playerAnswers);
+      const machineAnswers = revealedAiAnswers(plan, elapsedMs);
+
+      // Las respuestas del jugador y de la máquina se validan JUNTAS, con las mismas reglas,
+      // en una sola llamada a la IA
+      const checks = await this.aiValidator.validateAnswers(round.letter, [
+        ...categories.map((c) => ({ key: `jugador:${c}`, category: c, answer: playerAnswers[c] })),
+        ...categories.map((c) => ({ key: `maquina:${c}`, category: c, answer: machineAnswers[c] ?? null })),
+      ]);
+
+      // Puntaje clásico: la máquina cuenta como un jugador más
+      const byCategory: Record<string, CategoryEntry[]> = {};
+      for (const c of categories) {
+        const j = checks.get(`jugador:${c}`)!;
+        const m = checks.get(`maquina:${c}`)!;
+        byCategory[c] = [
+          { playerId: 'jugador', status: j.status, canonical: j.canonical ?? playerAnswers[c] },
+          { playerId: 'maquina', status: m.status, canonical: m.canonical ?? machineAnswers[c] ?? null },
+        ];
+      }
+      const scores = scoreRound(byCategory);
+      const playerPoints = scores.jugador?.total ?? 0;
+      const aiPoints = scores.maquina?.total ?? 0;
       const outcome = outcomeOf(playerPoints, aiPoints);
+
+      const results = categories.map((c) => {
+        const j = checks.get(`jugador:${c}`)!;
+        const m = checks.get(`maquina:${c}`)!;
+        return {
+          category: c,
+          userAnswer: playerAnswers[c],
+          status: j.status,
+          isValid: j.status === 'valid',
+          canonical: j.canonical,
+          reason: j.reason,
+          points: scores.jugador?.byCategory[c] ?? 0,
+          machine: {
+            answer: machineAnswers[c] ?? null,
+            status: m.status,
+            isValid: m.status === 'valid',
+            canonical: m.canonical,
+            reason: m.reason,
+            points: scores.maquina?.byCategory[c] ?? 0,
+          },
+        };
+      });
+
+      // Si la IA no respondió, alguna respuesta quedó "sin validar" (0 puntos). Esa partida no es
+      // justa: se termina igual, pero no cuenta para estadísticas, ranking ni logros.
+      const validationIncomplete = [...checks.values()].some((c) => c.status === 'unverified');
+      const allAnswersValid = results.every((r) => r.isValid);
 
       const categoryRows = await this.prisma.categories.findMany({
         where: { name: { in: categories } },
@@ -108,11 +142,8 @@ export class SoloMatchesService {
       });
       const categoryIdByName = new Map(categoryRows.map((c) => [c.name, c.id]));
 
-      const allAnswersValid =
-        validation.results.length === categories.length && validation.results.every((r) => r.isValid);
-
       const { profile, newAchievements } = await this.prisma.$transaction(async (tx) => {
-        for (const r of validation.results) {
+        for (const r of results) {
           const categoryId = categoryIdByName.get(r.category);
           if (!categoryId) continue; // categoría no sembrada en la base: se puntúa igual, no se guarda
           await tx.answers.create({
@@ -120,15 +151,17 @@ export class SoloMatchesService {
               round_id: round.id,
               room_player_id: null,
               category_id: categoryId,
-              answer_text: playerAnswers[r.category],
-              is_valid: r.isValid,
+              answer_text: r.userAnswer,
+              is_valid: r.status === 'unverified' ? null : r.isValid,
               points: r.points,
-              validated_by: 'ai',
+              validated_by: r.status === 'unverified' ? 'unverified' : 'ai',
             },
           });
         }
         await tx.rounds.update({ where: { id: round.id }, data: { status: 'finished', finished_at: new Date() } });
         await tx.matches.update({ where: { id: matchId }, data: { status: 'finished', finished_at: new Date() } });
+        if (validationIncomplete) return { profile: null, newAchievements: [] };
+
         const updated = await this.stats.recordMatchResult(userId, { won: outcome === 'win', points: playerPoints }, tx);
         const unlocked = await this.achievements.unlockFor(
           userId,
@@ -150,13 +183,14 @@ export class SoloMatchesService {
       return {
         matchId,
         letter: round.letter,
-        results: validation.results,
+        results,
         playerPoints,
-        aiAnswers,
+        aiAnswers: machineAnswers,
         aiPoints,
         outcome,
+        validationIncomplete,
         newAchievements,
-        stats: {
+        stats: profile && {
           matchesPlayed: profile.matches_played,
           matchesWon: profile.matches_won,
           totalPoints: profile.total_points,
@@ -268,25 +302,24 @@ export class SoloMatchesService {
       throw new BadRequestException('Esta ronda ya fue validada');
     }
 
-    const dtoForAi = {
+    const aiResult = await this.aiValidator.validateRound({
       roundLetter: round.letter,
-      answers: round.answers.map((a) => ({
-        category: a.category.name,
-        answer: a.answer_text,
-      })),
-    } as any;
-
-    const aiResult = await this.aiValidator.validateRound(dtoForAi);
+      answers: round.answers.map((a) => ({ category: a.category.name, answer: a.answer_text })),
+    });
 
     // Mapeamos el resultado de la IA de vuelta a cada `answer` por categoría
     const updates = round.answers.map((a) => {
       const aiMatch = aiResult.results.find((r) => r.category === a.category.name);
-      const isValid = aiMatch?.isValid ?? false;
+      const unverified = !aiMatch || aiMatch.status === 'unverified';
       const points = aiMatch?.points ?? 0;
 
       return this.prisma.answers.update({
         where: { id: a.id },
-        data: { is_valid: isValid, points, validated_by: 'ai' },
+        data: {
+          is_valid: unverified ? null : aiMatch.isValid,
+          points,
+          validated_by: unverified ? 'unverified' : 'ai',
+        },
       });
     });
 

@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StatsService } from '../stats/stats.service';
+import { scoreCategory, type AnswerStatus, type CategoryEntry } from '../tutti-frutti/scoring';
 import { AchievementsService, UnlockedAchievement } from '../achievements/achievements.service';
 import { CreateRoomDto } from './dto/create-room.dto';
 
@@ -334,46 +335,31 @@ export class RoomsService {
       include: { votes: true },
     });
 
-    const normalize = (s: string | null) =>
-      (s ?? '')
-        .trim()
-        .toLowerCase()
-        .normalize('NFD')
-        .replace(/[\u0300-\u036f]/g, '');
+    // Validez por votos: vale si tiene al menos tantos votos a favor como en contra.
+    // Puntaje: el mismo de la partida contra la máquina (tutti-frutti/scoring.ts): 20 si es la única
+    // válida de la categoría, 10 si nadie más puso lo mismo, 5 si se repite, 0 si no vale.
+    const statusOf = (a: (typeof answers)[number]): AnswerStatus => {
+      if (!a.answer_text || a.answer_text.trim() === '') return 'empty';
+      const approvals = a.votes.filter((v) => v.approve).length;
+      const rejections = a.votes.filter((v) => !v.approve).length;
+      return approvals >= rejections ? 'valid' : 'invalid';
+    };
 
-    const groupCount: Record<string, number> = {};
+    const byCategory = new Map<string, CategoryEntry[]>();
     for (const a of answers) {
-      if (!a.answer_text) continue;
-      const key = `${a.category_id}::${normalize(a.answer_text)}`;
-      groupCount[key] = (groupCount[key] ?? 0) + 1;
+      const list = byCategory.get(a.category_id) ?? [];
+      list.push({ playerId: a.id, status: statusOf(a), canonical: a.answer_text });
+      byCategory.set(a.category_id, list);
     }
+    const pointsByAnswer: Record<string, number> = {};
+    for (const entries of byCategory.values()) Object.assign(pointsByAnswer, scoreCategory(entries));
 
-    const updates = answers.map((a) => {
-      let isValid = false;
-      let points = 0;
-
-      if (!a.answer_text || a.answer_text.trim() === '') {
-        isValid = false;
-        points = 0;
-      } else {
-        const approvals = a.votes.filter((v) => v.approve).length;
-        const rejections = a.votes.filter((v) => !v.approve).length;
-        isValid = approvals >= rejections;
-
-        if (isValid) {
-          const key = `${a.category_id}::${normalize(a.answer_text)}`;
-          const isRepeated = (groupCount[key] ?? 0) > 1;
-          points = isRepeated ? 5 : 10;
-        } else {
-          points = 0;
-        }
-      }
-
-      return this.prisma.answers.update({
+    const updates = answers.map((a) =>
+      this.prisma.answers.update({
         where: { id: a.id },
-        data: { is_valid: isValid, points, validated_by: 'votes' },
-      });
-    });
+        data: { is_valid: statusOf(a) === 'valid', points: pointsByAnswer[a.id] ?? 0, validated_by: 'votes' },
+      }),
+    );
 
     const finalAnswers = await this.prisma.$transaction(updates);
 

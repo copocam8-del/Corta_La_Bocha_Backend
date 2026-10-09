@@ -54,6 +54,33 @@ describe('RoomsService', () => {
       prisma.room_players.findFirst.mockResolvedValue(null);
       await expect(service.tallyRoundVotes('m1', 'r1', 'intruso')).rejects.toThrow(BadRequestException);
     });
+
+    it('puntúa con la regla clásica (20 única válida, 10 distinta, 5 repetida, 0 rechazada por votos)', async () => {
+      prisma.rounds.updateMany.mockResolvedValue({ count: 1 });
+      const voto = (approve: boolean) => ({ approve });
+      prisma.answers.findMany.mockResolvedValue([
+        // Jugador: dos ponen "Messi" (5 c/u), uno "Mbappé" (10)
+        { id: 'a1', room_player_id: 'rp1', category_id: 'jug', answer_text: 'Messi', votes: [voto(true)] },
+        { id: 'a2', room_player_id: 'rp2', category_id: 'jug', answer_text: 'messi ', votes: [] },
+        { id: 'a3', room_player_id: 'rp3', category_id: 'jug', answer_text: 'Mbappé', votes: [voto(true)] },
+        // Equipo: sólo una válida (20); la otra rechazada por votos (0) y una vacía (0)
+        { id: 'b1', room_player_id: 'rp1', category_id: 'eq', answer_text: 'Milan', votes: [] },
+        { id: 'b2', room_player_id: 'rp2', category_id: 'eq', answer_text: 'Mesa', votes: [voto(false), voto(false)] },
+        { id: 'b3', room_player_id: 'rp3', category_id: 'eq', answer_text: '', votes: [] },
+      ]);
+      prisma.answers.update.mockImplementation(({ where, data }: { where: { id: string }; data: object }) =>
+        Promise.resolve({ id: where.id, room_player_id: `rp${where.id[1]}`, ...data }),
+      );
+      prisma.room_players.findUnique.mockImplementation(({ where }: { where: { id: string } }) =>
+        Promise.resolve({ id: where.id, user_id: `u${where.id.slice(2)}` }),
+      );
+
+      const res = await service.tallyRoundVotes('m1', 'r1', 'u1');
+
+      const puntos = Object.fromEntries(res.answers.map((a: { id: string; points: number }) => [a.id, a.points]));
+      expect(puntos).toEqual({ a1: 5, a2: 5, a3: 10, b1: 20, b2: 0, b3: 0 });
+      expect(res.pointsByRoomPlayer).toEqual({ rp1: 25, rp2: 5, rp3: 10 });
+    });
   });
 
   describe('finishMatch', () => {
