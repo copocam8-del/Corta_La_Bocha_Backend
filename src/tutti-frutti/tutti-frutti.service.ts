@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { ValidateRoundDto, ValidationResultDto, ValidateRoundResponseDto } from './dto/validate-round.dto';
 import { normalizeText, precheckAnswer } from './answer-rules';
 import { AnswerStatus, scoreRound } from './scoring';
+import { AiProvider, createAiProvider } from './ai-providers';
 
 // Una respuesta a validar. "key" la elige quien llama (ej. "jugador:Equipo") y sirve para
 // encontrar el resultado después.
@@ -70,10 +71,9 @@ Reglas:
 - "reason": explicación breve en español rioplatense para el jugador (máximo 15 palabras).
 Devolvé un resultado por cada "id" recibido.`;
 
+// Schema de la respuesta. Lo usan los tres proveedores con su modo de salida estructurada.
+const RESPONSE_SCHEMA_NAME = 'validacion_ronda';
 const RESPONSE_SCHEMA = {
-  name: 'validacion_ronda',
-  strict: true,
-  schema: {
     type: 'object',
     properties: {
       results: {
@@ -87,33 +87,49 @@ const RESPONSE_SCHEMA = {
             reason: { type: 'string' },
           },
           required: ['id', 'isValid', 'canonical', 'reason'],
-          // En modo "strict" OpenAI exige esto en TODOS los objetos; si falta, rechaza el pedido
+          // En modo "strict" OpenAI (y Claude) exigen esto en TODOS los objetos; si falta, rechazan el pedido
           additionalProperties: false,
         },
       },
     },
     required: ['results'],
     additionalProperties: false,
-  },
 };
 
 const CACHE_MAX_ENTRIES = 5000;
-const OPENAI_TIMEOUT_MS = 20000;
+const AI_TIMEOUT_MS = 20000;
 export const UNVERIFIED_REASON = 'No se pudo validar (la IA no respondió). No suma puntos.';
 
 @Injectable()
 export class TuttiFruttiValidatorService {
   private readonly logger = new Logger(TuttiFruttiValidatorService.name);
-  private readonly openaiApiKey: string | undefined;
-  private readonly openaiApiUrl = 'https://api.openai.com/v1/chat/completions';
+  // Proveedor elegido con AI_PROVIDER / AI_MODEL (null si falta la clave: todo queda "sin validar")
+  private readonly ai: AiProvider | null;
   // Caché en memoria: (categoría, letra, respuesta normalizada) → resultado de la IA
   private readonly cache = new Map<string, { isValid: boolean; canonical: string; reason: string }>();
 
   constructor(private readonly configService: ConfigService) {
-    this.openaiApiKey = this.configService.get<string>('OPENAI_API_KEY');
-    if (!this.openaiApiKey) {
-      this.logger.warn('Falta OPENAI_API_KEY: las respuestas van a quedar "sin validar" (0 puntos).');
+    const result = createAiProvider({
+      provider: this.configService.get<string>('AI_PROVIDER'),
+      model: this.configService.get<string>('AI_MODEL'),
+      keys: {
+        GEMINI_API_KEY: this.configService.get<string>('GEMINI_API_KEY'),
+        ANTHROPIC_API_KEY: this.configService.get<string>('ANTHROPIC_API_KEY'),
+        OPENAI_API_KEY: this.configService.get<string>('OPENAI_API_KEY'),
+      },
+    });
+    if (result.ok) {
+      this.ai = result.provider;
+      this.logger.log(`Validación con IA: ${result.provider.name} (${result.provider.model})`);
+    } else {
+      this.ai = null;
+      this.logger.error(`Validación con IA desactivada: ${result.problem}. Las respuestas van a quedar "sin validar" (0 puntos).`);
     }
+  }
+
+  // Para mostrar en logs/tests qué se está usando
+  get providerInfo() {
+    return this.ai ? { name: this.ai.name, model: this.ai.model } : null;
   }
 
   /**
@@ -220,7 +236,7 @@ export class TuttiFruttiValidatorService {
   private remember(key: string, value: { isValid: boolean; canonical: string; reason: string }) {
     if (this.cache.size >= CACHE_MAX_ENTRIES) {
       // Map recuerda el orden de inserción: borramos la más vieja
-      const oldest = this.cache.keys().next().value;
+      const oldest = this.cache.keys().next().value as string | undefined;
       if (oldest !== undefined) this.cache.delete(oldest);
     }
     this.cache.set(key, value);
@@ -231,10 +247,10 @@ export class TuttiFruttiValidatorService {
     letter: string,
     items: { id: string; category: string; answer: string }[],
   ): Promise<Map<string, AiResult> | null> {
-    if (!this.openaiApiKey) return null;
+    if (!this.ai) return null;
     for (let attempt = 1; attempt <= 2; attempt++) {
       try {
-        return await this.callOpenAi(letter, items);
+        return await this.callAi(this.ai, letter, items);
       } catch (e) {
         this.logger.warn(`Validación con IA falló (intento ${attempt}/2): ${(e as Error).message}`);
       }
@@ -242,7 +258,8 @@ export class TuttiFruttiValidatorService {
     return null;
   }
 
-  private async callOpenAi(
+  private async callAi(
+    ai: AiProvider,
     letter: string,
     items: { id: string; category: string; answer: string }[],
   ): Promise<Map<string, AiResult>> {
@@ -257,31 +274,15 @@ export class TuttiFruttiValidatorService {
       })),
     };
 
-    const response = await fetch(this.openaiApiUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${this.openaiApiKey}` },
-      signal: AbortSignal.timeout(OPENAI_TIMEOUT_MS),
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        temperature: 0,
-        messages: [
-          { role: 'system', content: SYSTEM_PROMPT },
-          { role: 'user', content: JSON.stringify(payload) },
-        ],
-        response_format: { type: 'json_schema', json_schema: RESPONSE_SCHEMA },
-      }),
+    const content = await ai.completeJson({
+      system: SYSTEM_PROMPT,
+      userJson: JSON.stringify(payload),
+      schemaName: RESPONSE_SCHEMA_NAME,
+      schema: RESPONSE_SCHEMA,
+      timeoutMs: AI_TIMEOUT_MS,
     });
 
-    if (!response.ok) {
-      const error = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
-      throw new Error(`OpenAI respondió ${response.status}: ${error.error?.message ?? response.statusText}`);
-    }
-
-    const data = (await response.json()) as { choices?: { message?: { content?: string; refusal?: string } }[] };
-    const message = data.choices?.[0]?.message;
-    if (!message?.content) throw new Error(`Respuesta vacía de OpenAI${message?.refusal ? `: ${message.refusal}` : ''}`);
-
-    const parsed = JSON.parse(message.content) as { results?: AiResult[] };
+    const parsed = JSON.parse(content) as { results?: AiResult[] };
     const byId = new Map<string, AiResult>();
     const knownIds = new Set(items.map((i) => i.id));
     for (const r of parsed.results ?? []) {

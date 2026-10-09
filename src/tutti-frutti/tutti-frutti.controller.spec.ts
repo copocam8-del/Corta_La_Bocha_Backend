@@ -21,7 +21,7 @@ describe('TuttiFruttiController', () => {
     await expect(controller.validateRound({ roundLetter: 'M', answers: [] })).resolves.toEqual({ totalPoints: 20 });
   });
 
-  it('pide sesión y tiene límite de intentos (cada llamada puede gastar OpenAI)', () => {
+  it('pide sesión y tiene límite de intentos (cada llamada puede gastar créditos de IA)', () => {
     const guards = Reflect.getMetadata('__guards__', TuttiFruttiController.prototype.validateRound) as unknown[];
     expect(guards).toContain(ThrottlerGuard);
     expect(guards).toHaveLength(2); // AuthGuard('jwt') + ThrottlerGuard

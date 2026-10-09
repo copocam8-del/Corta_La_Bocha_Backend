@@ -15,14 +15,17 @@ const openAiError = (status = 500) => ({
   json: () => Promise.resolve({ error: { message: 'falló' } }),
 });
 
-// null = sin OPENAI_API_KEY
+// Estos tests usan el proveedor OpenAI (llamada con fetch). Los tres proveedores se prueban
+// juntos en ai-providers.spec.ts. null = sin OPENAI_API_KEY
 const crear = (key: string | null = 'sk-test') =>
-  new TuttiFruttiValidatorService(new ConfigService(key ? { OPENAI_API_KEY: key } : {}));
+  new TuttiFruttiValidatorService(
+    new ConfigService(key ? { AI_PROVIDER: 'openai', OPENAI_API_KEY: key } : { AI_PROVIDER: 'openai' }),
+  );
 
 // Lo que se mandó a OpenAI en la llamada n
 const enviado = (fetchMock: jest.Mock, n = 0) => JSON.parse(fetchMock.mock.calls[n][1].body as string);
 
-describe('TuttiFruttiValidatorService', () => {
+describe('TuttiFruttiValidatorService (con OpenAI)', () => {
   let fetchMock: jest.Mock;
 
   beforeEach(() => {

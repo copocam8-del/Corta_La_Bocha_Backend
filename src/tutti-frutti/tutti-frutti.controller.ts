@@ -9,7 +9,7 @@ import { authValidationPipe } from '../auth/auth-validation.pipe';
 export class TuttiFruttiController {
   constructor(private readonly tuttiFruttiService: TuttiFruttiValidatorService) {}
 
-  // Valida una ronda suelta de un jugador. Cada llamada puede usar OpenAI (cuesta plata), así que
+  // Valida una ronda suelta de un jugador. Cada llamada usa el proveedor de IA (cuesta plata), así que
   // pide sesión y tiene límite de intentos. El juego usa /solo-matches/quick; esto queda para pruebas.
   @UseGuards(AuthGuard('jwt'), ThrottlerGuard)
   @Throttle({ default: { ttl: 60_000, limit: 20 } })
