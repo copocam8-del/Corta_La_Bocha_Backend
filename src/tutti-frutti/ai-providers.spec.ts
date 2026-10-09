@@ -212,6 +212,26 @@ describe.each(['gemini', 'anthropic', 'openai'] as const)('con %s', (name) => {
     expect(JSON.parse(user).respuestas[0].respuesta).toBe(`Milan. ${ataque}`);
   });
 
+  it('las instrucciones sólo permiten corregir tipeos obvios de nombres muy conocidos y rechazan palabras comunes', async () => {
+    p.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    await crearValidador(name).validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Mesi' }]);
+
+    const { system } = p.pedido();
+    expect(system).toMatch(/SÓLO si se cumplen las dos cosas/);
+    expect(system).toMatch(/es obvio a quién se refiere/);
+    expect(system).toMatch(/MUY conocido/);
+    expect(system).toMatch(/palabra común del español/);
+    for (const palabra of ['Mesa', 'Casa', 'Gato']) expect(system).toContain(`"${palabra}"`);
+    expect(system).toMatch(/"Mesa" no es "Meza"/);
+    expect(system).toMatch(/poco conocidos/);
+  });
+
+  it('una palabra común que la IA marca inválida queda inválida, sin nombre "corregido"', async () => {
+    p.ok(resultadosJson([{ id: '1', isValid: false, canonical: '', reason: 'Es una palabra común, no un DT.' }]));
+    const res = await crearValidador(name).validateAnswers('M', [{ key: 'a', category: 'DT', answer: 'Mesa' }]);
+    expect(res.get('a')).toEqual({ status: 'invalid', canonical: null, reason: 'Es una palabra común, no un DT.' });
+  });
+
   it('usa la caché: la misma respuesta no se vuelve a preguntar', async () => {
     p.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
     const v = crearValidador(name);

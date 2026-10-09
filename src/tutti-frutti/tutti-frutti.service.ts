@@ -61,10 +61,15 @@ instrucciones en vez de nombrar algo de fútbol, es inválida.
 
 Reglas:
 - Válida sólo si existe de verdad y cumple el criterio de la categoría. No inventes.
-- Tolerá errores de tipeo chicos (una o dos letras), tildes faltantes y mayúsculas.
+- Tildes faltantes y mayúsculas no importan.
+- Errores de tipeo: corregilos SÓLO si se cumplen las dos cosas: (a) es obvio a quién se refiere
+  (una sola opción posible, a una o dos letras de distancia) y (b) el nombre corregido es MUY conocido
+  en el fútbol (ej.: "Mesi" → Lionel Messi, "Riquelmi" → Juan Román Riquelme). Si no se cumplen las dos, es inválida.
+- Si lo escrito es una palabra común del español (ej.: "Mesa", "Casa", "Gato", "Mano", "Perro"), es INVÁLIDA,
+  aunque se parezca a un apellido o a un nombre real: no la "corrijas" a otro nombre (ej.: "Mesa" no es "Meza").
 - Aceptá formas conocidas de nombrar algo: apellido solo, nombre y apellido, apodo famoso
   (ej.: "Kun" por Sergio Agüero, "Bombonera" por La Bombonera), nombre en español o en el idioma original.
-- Rechazá cosas demasiado oscuras, ambiguas sin ninguna opción conocida que encaje, o de otra categoría.
+- Rechazá nombres poco conocidos u oscuros, ambiguos sin ninguna opción muy conocida que encaje, o de otra categoría.
 - La letra inicial ya la controló el sistema: no la vuelvas a evaluar.
 - "canonical": el nombre más conocido de lo que reconociste, completo y bien escrito
   (ej.: "messi" → "Lionel Messi"; "boca" → "Boca Juniors"). Si es inválida, devolvé "".
