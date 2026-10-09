@@ -1,14 +1,16 @@
-import { IsString, IsNotEmpty, IsOptional, ValidateNested, IsArray } from 'class-validator';
+import { IsString, IsNotEmpty, IsOptional, ValidateNested, IsArray, ArrayMaxSize, MaxLength } from 'class-validator';
 import { Type, Transform } from 'class-transformer';
+import type { AnswerStatus } from '../scoring';
 
 export class CategoryAnswerDto {
   @IsString()
   @IsNotEmpty()
   category: string;
 
+  @MaxLength(150)
   @IsString()
   @IsOptional()
-  @Transform(({ value }) => (value === '' ? null : value?.trim()))
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() || null : value))
   answer: string | null;
 }
 
@@ -17,6 +19,7 @@ export class ValidateRoundDto {
   @IsNotEmpty()
   roundLetter: string;
 
+  @ArrayMaxSize(10)
   @IsArray()
   @ValidateNested({ each: true })
   @Type(() => CategoryAnswerDto)
@@ -30,9 +33,10 @@ export class ValidateRoundDto {
 export class ValidationResultDto {
   category: string;
   userAnswer: string | null;
-  aiAnswer: string | null;
+  status: AnswerStatus; // valid | invalid | empty | unverified
   isValid: boolean;
-  reason?: string;
+  canonical: string | null; // nombre que reconoció la IA
+  reason: string; // en español
   points: number;
 }
 
@@ -40,11 +44,6 @@ export class ValidateRoundResponseDto {
   roundLetter: string;
   totalPoints: number;
   results: ValidationResultDto[];
+  validationIncomplete: boolean; // true si la IA no respondió y alguna quedó sin validar
   timestamp: string;
-}
-
-export class AiValidationPayload {
-  category: string;
-  roundLetter: string;
-  userAnswer: string;
 }
