@@ -105,6 +105,32 @@ describe('UsersController', () => {
       expect(Object.keys(errors!).sort()).toEqual(['bio', 'favorite_team', 'username']);
     });
 
+    it('acepta nombre y apellido (sin espacios de más)', async () => {
+      const { dto, errors } = await validar({ first_name: '  Lionel ', last_name: 'Messi  ' });
+      expect(errors).toBeUndefined();
+      expect(dto).toMatchObject({ first_name: 'Lionel', last_name: 'Messi' });
+    });
+
+    it('nombre y apellido vacíos, con sólo espacios o null se ignoran (no se borran)', async () => {
+      for (const vacio of ['', '   ', null]) {
+        const { dto, errors } = await validar({ first_name: vacio, last_name: vacio, bio: 'Hola' });
+        expect(errors).toBeUndefined();
+        expect(dto!.first_name).toBeUndefined();
+        expect(dto!.last_name).toBeUndefined();
+        expect(dto!.bio).toBe('Hola');
+      }
+    });
+
+    it('nombre y apellido con las mismas reglas que el registro (texto y hasta 50 caracteres)', async () => {
+      const { errors } = await validar({ first_name: 'x'.repeat(51), last_name: 123 });
+      expect(errors).toEqual({
+        first_name: ['El nombre puede tener hasta 50 caracteres'],
+        last_name: ['El apellido debe ser texto'],
+      });
+      const { errors: ok } = await validar({ first_name: 'x'.repeat(50), last_name: 'y'.repeat(50) });
+      expect(ok).toBeUndefined();
+    });
+
     it('descarta campos que no se pueden editar (ej. puntos)', async () => {
       const { dto } = await validar({ total_points: 99999, avatar_url: 'https://x' });
       expect(dto).not.toHaveProperty('total_points');

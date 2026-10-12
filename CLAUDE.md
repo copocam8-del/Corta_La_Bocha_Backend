@@ -132,6 +132,9 @@ prisma/
   migración `20261012120000_ligas_elo` (no hay datos viejos en `match_results`).
 - Ojo con las fechas: las columnas son `TIMESTAMP` sin zona horaria; las que importan (`started_at`, `match_results.created_at`)
   las pone el servidor con `new Date()`, no el `now()` de la base.
+- Perfil: `PUT /users/me` también cambia `first_name` y `last_name` (mismas reglas que el registro: texto, hasta
+  `NAME_MAX` = 50; "", sólo espacios o null se ignoran: el nombre nunca se borra). Se devuelven sólo en `/users/me`; los
+  datos públicos (`GET /users`, `/users/:id`, ranking, salas) siguen sin el nombre real.
 - Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
   (mismo set en el frontend): `BASE_AVATAR_IDS` (íconos clásicos) + `CLUB_AVATAR_IDS` (hinchas de clubes, `hincha_…`, uno por camiseta: los clubes con la misma camiseta lo comparten,
   en orden alfabético). Sólo se aceptan esos ids (400 si no). El id entra en `profiles.avatar_id` (VARCHAR 30): máximo 30
