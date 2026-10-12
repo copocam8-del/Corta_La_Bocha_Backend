@@ -133,7 +133,9 @@ prisma/
 - Ojo con las fechas: las columnas son `TIMESTAMP` sin zona horaria; las que importan (`started_at`, `match_results.created_at`)
   las pone el servidor con `new Date()`, no el `now()` de la base.
 - Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
-  (mismo set en el frontend). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
+  (mismo set en el frontend): `BASE_AVATAR_IDS` (íconos clásicos) + `CLUB_AVATAR_IDS` (hinchas de clubes, `hincha_…`,
+  en orden alfabético). Sólo se aceptan esos ids (400 si no). El id entra en `profiles.avatar_id` (VARCHAR 30): máximo 30
+  caracteres. **Si agregás uno, agregalo en los dos repos** (`avatars.spec.ts` compara con el frontend si está al lado). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
 
 ## Validación de respuestas y puntaje
 
