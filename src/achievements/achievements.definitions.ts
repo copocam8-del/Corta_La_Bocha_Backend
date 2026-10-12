@@ -199,6 +199,28 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'sopa_de_letras',
     isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
   },
+  // ── Memotest ──
+  {
+    id: 'memotest_elefante',
+    name: 'Memoria de elefante',
+    description: 'Completá un memotest con, como mucho, 2 intentos fallidos.',
+    game: 'memotest',
+    isUnlocked: (c) => c.won && Number(c.extra?.movimientos ?? 99) <= Number(c.extra?.pares ?? 0) + 2,
+  },
+  {
+    id: 'memotest_dificil',
+    name: 'Memoria de crack',
+    description: 'Completá un memotest en el nivel Difícil.',
+    game: 'memotest',
+    isUnlocked: (c) => c.won && c.extra?.nivel === 'dificil',
+  },
+  {
+    id: 'memotest_diez',
+    name: 'No me olvido de nada',
+    description: 'Completá 10 memotests.',
+    game: 'memotest',
+    isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
+  },
 ];
 
 export const ACHIEVEMENT_IDS = ACHIEVEMENTS.map((a) => a.id);

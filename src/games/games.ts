@@ -62,7 +62,7 @@ export const GAMES: GameInfo[] = [
     id: 'memotest',
     name: 'Memotest',
     description: 'Da vuelta las cartas y encontrá los pares futboleros.',
-    available: false,
+    available: true,
     path: '/memotest',
     hasElo: false,
   },

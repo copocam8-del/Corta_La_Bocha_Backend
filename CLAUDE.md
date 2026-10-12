@@ -262,6 +262,15 @@ prisma/
   encuentra todas, × 1 / 1,3 / 1,6. Ganar = encontrarlas todas a tiempo (el servidor mide el tiempo).
 - Palabras en `sopa-rules.ts` (`TEMATICAS_SOPA`): sólo A-Z, sin espacios ni Ñ. Logros: `sopa_relampago`, `sopa_dificil`, `sopa_diez`.
 
+## Memotest (`src/memotest/`)
+
+- Pares de **texto con íconos propios** (sin escudos ni logos con derechos): clubes y apodos, jugadores y
+  selecciones, estadios y clubes (`memotest-rules.ts`). Niveles: 6/8/10 pares, 2/3/4 minutos.
+- `POST /memotest {tema, nivel}` → sólo la cantidad de cartas (**el mazo queda en `matches.state`**).
+  `POST /memotest/:id/voltear {carta}` revela esa carta; con la segunda dice si es par. `POST /memotest/:id/rendirse`.
+- Puntos al completar: base (60/90/120) + 5 por cada movimiento por debajo de 2×pares + hasta 40 por rapidez.
+  Si se acaba el tiempo: 5 por par encontrado. Logros: `memotest_elefante`, `memotest_dificil`, `memotest_diez`.
+
 ## Logros
 
 - Definiciones en `src/achievements/achievements.definitions.ts` (condición = función sobre las estadísticas y la
