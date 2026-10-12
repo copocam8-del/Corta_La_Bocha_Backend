@@ -249,7 +249,7 @@ describe('ronda', () => {
     expect(st.final!.newAchievements.map((x) => x.id)).toEqual(['campeon_del_barrio']);
     expect(s.state('b').final!.newAchievements).toEqual([]); // cada uno ve sólo los suyos
     expect(s.store.finishMatch).toHaveBeenCalledTimes(1);
-    expect(s.store.finishMatch).toHaveBeenCalledWith('match1', expect.any(String), expect.any(Array), true);
+    expect(s.store.finishMatch).toHaveBeenCalledWith('match1', expect.any(String), expect.any(Array), true, 'tutti_frutti');
     // Jugar otra: vuelve al lobby con los puntos en 0
     expect(await s.engine.playAgain(code, 'b')).toMatchObject({ ok: false });
     expect(await s.engine.playAgain(code, 'a')).toEqual({ ok: true });
@@ -265,7 +265,7 @@ describe('ronda', () => {
     await tick(COLLECT_MS);
     expect(s.state('a').lastResult!.incomplete).toBe(true);
     expect(s.state('a').final!.countsForStats).toBe(false);
-    expect(s.store.finishMatch).toHaveBeenCalledWith('match1', expect.any(String), expect.any(Array), false);
+    expect(s.store.finishMatch).toHaveBeenCalledWith('match1', expect.any(String), expect.any(Array), false, 'tutti_frutti');
   });
 });
 

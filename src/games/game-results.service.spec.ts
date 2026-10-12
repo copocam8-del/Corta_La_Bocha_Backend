@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { GameResultsService } from './game-results.service';
 import { GAMES, GAME_IDS, isGameId } from './games';
 import { ACHIEVEMENTS } from '../achievements/achievements.definitions';
+import { MULTI_GAMES } from '../rooms/modes/types';
 import { AchievementsService } from '../achievements/achievements.service';
 
 describe('catálogo de juegos', () => {
@@ -12,6 +13,11 @@ describe('catálogo de juegos', () => {
     expect(GAMES.find((g) => g.id === 'tutti_frutti')).toMatchObject({ available: true, hasElo: true });
     expect(isGameId('ahorcado')).toBe(true);
     expect(isGameId('truco')).toBe(false);
+  });
+
+  it('los juegos con menú "¿Cómo querés jugar?" son los que tienen multijugador (el desafío del día no)', () => {
+    expect(GAMES.filter((g) => g.multiplayer).map((g) => g.id)).toEqual([...MULTI_GAMES]);
+    expect(GAMES.find((g) => g.id === 'trivia_diaria')!.multiplayer).toBe(false);
   });
 
   it('los logros de juego apuntan a juegos que existen', () => {

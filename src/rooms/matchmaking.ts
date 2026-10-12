@@ -1,9 +1,10 @@
-import { TEMATICAS } from '../solo-matches/solo-quick';
-import type { Settings } from './game-engine';
+import { MODES } from './modes';
+import { isMultiGame, type MultiGameId, type Settings } from './modes/types';
 
-// Cola pública: junta jugadores que eligieron la misma temática y tamaño de partida. Cuando hay
-// el mínimo, arranca una cuenta regresiva (QUEUE_WAIT_MS) para que se sumen más; si se llena,
-// arma la sala en el momento. Las partidas públicas son de PUBLIC_SETTINGS (rondas y tiempo fijos).
+// Cola pública: junta jugadores que eligieron el mismo juego, la misma temática (en Tutti Frutti)
+// y el mismo tamaño de partida. Cuando hay el mínimo, arranca una cuenta regresiva (QUEUE_WAIT_MS)
+// para que se sumen más; si se llena, arma la sala en el momento. Las partidas públicas tienen una
+// configuración fija por juego (publicSettings de cada modo: en Tutti Frutti, 3 rondas de 60 s).
 
 export const QUEUE_SIZES = {
   pocos: { min: 2, max: 4 },
@@ -12,8 +13,7 @@ export const QUEUE_SIZES = {
 export type QueueSize = keyof typeof QUEUE_SIZES;
 
 export const QUEUE_WAIT_MS = 10_000;
-export const PUBLIC_ROUNDS = 3;
-export const PUBLIC_SECONDS = 60;
+export { PUBLIC_ROUNDS, PUBLIC_SECONDS } from './modes/tutti-frutti.mode';
 
 export interface QueueEntry {
   userId: string;
@@ -21,6 +21,7 @@ export interface QueueEntry {
 }
 
 export interface QueueState {
+  game: MultiGameId;
   tematica: string;
   size: QueueSize;
   min: number;
@@ -36,6 +37,7 @@ export interface QueueOutput {
 }
 
 interface Bucket {
+  game: MultiGameId;
   tematica: string;
   size: QueueSize;
   entries: QueueEntry[];
@@ -48,19 +50,23 @@ export class Matchmaking {
   private readonly bucketOf = new Map<string, string>(); // userId → clave del grupo
 
   constructor(
-    private readonly createRoom: (userIds: string[], settings: Settings) => Promise<string>,
+    private readonly createRoom: (userIds: string[], settings: Settings, game: MultiGameId) => Promise<string>,
     private readonly output: QueueOutput,
     private readonly log: (msg: string) => void = () => {},
   ) {}
 
-  join(user: QueueEntry, tematica: string, size: string): { ok: true } | { ok: false; error: string } {
-    if (!TEMATICAS[tematica]) return { ok: false, error: 'Temática inválida.' };
-    if (!(size in QUEUE_SIZES)) return { ok: false, error: 'Cantidad de jugadores inválida.' };
+  join(user: QueueEntry, tematica: string, size: string, game: string = 'tutti_frutti'): { ok: true } | { ok: false; error: string } {
+    if (!isMultiGame(game)) return { ok: false, error: 'Juego inválido.' };
+    const def = MODES[game];
+    // Sólo Tutti Frutti separa la cola por temática; en los demás la configuración pública es fija
+    if (game !== 'tutti_frutti') tematica = '';
+    else if (!def.publicSettings(tematica)) return { ok: false, error: 'Temática inválida.' };
+    if (!(size in QUEUE_SIZES) || !def.queueSizes.includes(size as QueueSize)) return { ok: false, error: 'Cantidad de jugadores inválida.' };
     this.leave(user.userId); // si estaba en otra cola, sale
-    const key = `${tematica}|${size}`;
+    const key = `${game}|${tematica}|${size}`;
     let bucket = this.buckets.get(key);
     if (!bucket) {
-      bucket = { tematica, size: size as QueueSize, entries: [], startsAt: null };
+      bucket = { game, tematica, size: size as QueueSize, entries: [], startsAt: null };
       this.buckets.set(key, bucket);
     }
     bucket.entries.push(user);
@@ -112,14 +118,15 @@ export class Matchmaking {
     try {
       const code = await this.createRoom(
         group.map((e) => e.userId),
-        { tematica: bucket.tematica, rounds: PUBLIC_ROUNDS, seconds: PUBLIC_SECONDS },
+        MODES[bucket.game].publicSettings(bucket.tematica)!,
+        bucket.game,
       );
       for (const e of group) this.output.sendMatched(e.userId, code);
     } catch (e) {
       this.log(`No se pudo armar la sala pública: ${e}`);
       // Vuelven a la cola, adelante de todo
       bucket.entries.unshift(...group);
-      for (const g of group) this.bucketOf.set(g.userId, `${bucket.tematica}|${bucket.size}`);
+      for (const g of group) this.bucketOf.set(g.userId, `${bucket.game}|${bucket.tematica}|${bucket.size}`);
     }
     this.update(bucket);
   }
@@ -127,6 +134,7 @@ export class Matchmaking {
   private broadcast(bucket: Bucket) {
     const { min, max } = QUEUE_SIZES[bucket.size];
     const state: QueueState = {
+      game: bucket.game,
       tematica: bucket.tematica,
       size: bucket.size,
       min,

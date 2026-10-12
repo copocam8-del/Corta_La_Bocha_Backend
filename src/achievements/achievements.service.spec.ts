@@ -16,11 +16,19 @@ const ctx = (over: Partial<AchievementContext> = {}): AchievementContext => ({
 const ganados = (c: AchievementContext) => ACHIEVEMENTS.filter((a) => a.isUnlocked(c)).map((a) => a.id);
 
 describe('definición de logros', () => {
-  it('hay 12 logros generales/de Tutti Frutti y de 2 a 3 por cada juego nuevo, con ids únicos y textos en español', () => {
+  it('ganar en multijugador da el logro de ese juego (y sólo en multijugador)', () => {
+    const base = { matchesPlayed: 1, matchesWon: 1, totalPoints: 10, currentStreak: 1, won: true };
+    expect(ganados({ ...base, game: 'trivia', mode: 'multiplayer' })).toContain('trivia_multi');
+    expect(ganados({ ...base, game: 'trivia', mode: 'solo' })).not.toContain('trivia_multi');
+    expect(ganados({ ...base, game: 'memotest', mode: 'multiplayer', won: false })).not.toContain('memotest_multi');
+  });
+
+
+  it('hay 12 logros generales/de Tutti Frutti y de 2 a 4 por cada juego nuevo (3 + ganar en multijugador), con ids únicos y textos en español', () => {
     expect(ACHIEVEMENTS.filter((a) => !a.game || a.game === 'tutti_frutti')).toHaveLength(12);
     const porJuego = new Map<string, number>();
     for (const a of ACHIEVEMENTS) if (a.game && a.game !== 'tutti_frutti') porJuego.set(a.game, (porJuego.get(a.game) ?? 0) + 1);
-    for (const n of porJuego.values()) expect(n >= 2 && n <= 3).toBe(true);
+    for (const n of porJuego.values()) expect(n >= 2 && n <= 4).toBe(true);
     expect(new Set(ACHIEVEMENTS.map((a) => a.id)).size).toBe(ACHIEVEMENTS.length);
     for (const a of ACHIEVEMENTS) {
       expect(a.id.length).toBeLessThanOrEqual(40); // largo de la columna en la base

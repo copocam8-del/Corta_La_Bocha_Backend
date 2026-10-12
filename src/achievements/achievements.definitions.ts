@@ -133,6 +133,13 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'ahorcado',
     isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
   },
+  {
+    id: 'ahorcado_multi',
+    name: 'Duelo de redondas',
+    description: 'Ganá un ahorcado multijugador.',
+    game: 'ahorcado',
+    isUnlocked: (c) => c.mode === 'multiplayer' && c.won,
+  },
   // ── Trivia ──
   {
     id: 'trivia_perfecta',
@@ -154,6 +161,13 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     description: 'Aprobá 10 trivias (6 o más aciertos).',
     game: 'trivia',
     isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
+  },
+  {
+    id: 'trivia_multi',
+    name: 'El que más sabe',
+    description: 'Ganá una trivia multijugador.',
+    game: 'trivia',
+    isUnlocked: (c) => c.mode === 'multiplayer' && c.won,
   },
   // ── Desafío del día ──
   {
@@ -199,6 +213,13 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'sopa_de_letras',
     isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
   },
+  {
+    id: 'sopa_multi',
+    name: 'La vi primero',
+    description: 'Ganá una sopa de letras multijugador.',
+    game: 'sopa_de_letras',
+    isUnlocked: (c) => c.mode === 'multiplayer' && c.won,
+  },
   // ── Memotest ──
   {
     id: 'memotest_elefante',
@@ -220,6 +241,13 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     description: 'Completá 10 memotests.',
     game: 'memotest',
     isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
+  },
+  {
+    id: 'memotest_multi',
+    name: 'Rey de la mesa',
+    description: 'Ganá un memotest multijugador.',
+    game: 'memotest',
+    isUnlocked: (c) => c.mode === 'multiplayer' && c.won,
   },
 ];
 
