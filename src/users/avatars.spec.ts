@@ -14,9 +14,13 @@ describe('avatares', () => {
     }
   });
 
-  it('se mantienen los avatares clásicos y hay un hincha por club', () => {
+  it('se mantienen los avatares clásicos y hay un hincha por camiseta', () => {
     expect(BASE_AVATAR_IDS).toEqual(['pelota', 'camiseta', 'arco', 'trofeo', 'medalla', 'corona', 'escudo', 'estrella', 'bandera', 'rayo', 'fuego', 'botines']);
-    expect(CLUB_AVATAR_IDS.length).toBeGreaterThanOrEqual(45);
+    expect(CLUB_AVATAR_IDS.length).toBe(29);
+    // los repetidos se juntaron: ya no existen sus ids
+    for (const id of ['hincha_instituto', 'hincha_union', 'hincha_barracas', 'hincha_colon', 'hincha_huracan']) {
+      expect(CLUB_AVATAR_IDS).not.toContain(id);
+    }
     expect(CLUB_AVATAR_IDS.every((id) => id.startsWith('hincha_'))).toBe(true);
   });
 
@@ -27,6 +31,7 @@ describe('avatares', () => {
     await expect(validar('pelota')).resolves.toBeDefined();
     await expect(validar(null)).resolves.toBeDefined(); // sin avatar
     await expect(validar('hincha_inventado')).rejects.toThrow(BadRequestException);
+    await expect(validar('hincha_instituto')).rejects.toThrow(BadRequestException); // se juntó con Estudiantes
     await expect(validar('<script>')).rejects.toThrow(BadRequestException);
   });
 
