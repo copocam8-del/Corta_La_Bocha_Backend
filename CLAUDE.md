@@ -117,6 +117,14 @@ prisma/
    - Caché en memoria por (categoría, letra, respuesta normalizada), hasta 5000 entradas.
    - Si la IA falla, reintenta una vez (el SDK de Anthropic va con `maxRetries: 0` para no reintentar dos veces). Si vuelve a fallar → `status: 'unverified'`, 0 puntos. Una partida solo con
      respuestas sin validar se termina pero **no cuenta** para estadísticas, ranking ni logros.
+   - Tiempos: cada intento se corta a los 12 s y la validación entera nunca pasa de 25 s (`AI_ATTEMPT_TIMEOUT_MS`,
+     `AI_TOTAL_BUDGET_MS`). El frontend espera 45 s (`FINISH_TIMEOUT_MS` en `src/api/soloMatch.ts`): si cambiás uno,
+     revisá el otro.
+   - Razonamiento al mínimo: Gemini 3 con `thinkingLevel: LOW` (gemini-3.8-flash **rechaza** `MINIMAL`; si el modelo
+     rechaza el nivel, se reintenta sin `thinkingConfig`), Claude Haiku con `thinking: disabled`, OpenAI con
+     `reasoning_effort: minimal` sólo en modelos o*/gpt-5.
+   - Para medir cuánto tarda una ronda real: `npx ts-node -T scripts/medir-validacion.ts` (usa la IA del `.env`,
+     gasta créditos, no toca la base).
 4. **Puntaje** (`src/tutti-frutti/scoring.ts`, lo usan la partida solo y el multijugador): por categoría, 20 si es el
    único con respuesta válida, 10 si es válida y nadie puso la misma (se compara el nombre canónico), 5 si otro puso
    la misma, 0 si no vale. En la partida solo, la máquina es un jugador más.
