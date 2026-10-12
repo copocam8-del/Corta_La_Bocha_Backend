@@ -25,9 +25,9 @@ export class GameResultsService {
     private achievements: AchievementsService,
   ) {}
 
-  createMatch(userId: string, game: GameId, state: Prisma.InputJsonValue, difficulty?: string) {
+  createMatch(userId: string, game: GameId, state: object, difficulty?: string) {
     return this.prisma.matches.create({
-      data: { user_id: userId, mode: 'solo', game, ai_difficulty: difficulty ?? null, status: 'in_progress', state },
+      data: { user_id: userId, mode: 'solo', game, ai_difficulty: difficulty ?? null, status: 'in_progress', state: state as Prisma.InputJsonValue },
     });
   }
 
@@ -40,8 +40,8 @@ export class GameResultsService {
   }
 
   // Guarda el estado nuevo sólo si la partida sigue en curso (evita pisar una que se terminó)
-  async saveState(matchId: string, state: Prisma.InputJsonValue) {
-    const res = await this.prisma.matches.updateMany({ where: { id: matchId, status: 'in_progress' }, data: { state } });
+  async saveState(matchId: string, state: object) {
+    const res = await this.prisma.matches.updateMany({ where: { id: matchId, status: 'in_progress' }, data: { state: state as Prisma.InputJsonValue } });
     if (res.count === 0) throw new ConflictException('Esta partida ya terminó');
   }
 
@@ -53,12 +53,12 @@ export class GameResultsService {
     matchId: string,
     game: GameId,
     outcome: GameOutcome,
-    finalState?: Prisma.InputJsonValue,
+    finalState?: object,
   ): Promise<{ newAchievements: UnlockedAchievement[]; totalPoints: number; gameStats: { matchesPlayed: number; matchesWon: number; totalPoints: number; bestStreak: number } } | null> {
     return this.prisma.$transaction(async (tx) => {
       const claimed = await tx.matches.updateMany({
         where: { id: matchId, user_id: userId, status: 'in_progress' },
-        data: { status: 'finished', finished_at: new Date(), ...(finalState !== undefined ? { state: finalState } : {}) },
+        data: { status: 'finished', finished_at: new Date(), ...(finalState !== undefined ? { state: finalState as Prisma.InputJsonValue } : {}) },
       });
       if (claimed.count === 0) return null;
       return this.recordInTx(tx, userId, matchId, game, outcome);

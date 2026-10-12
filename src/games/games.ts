@@ -38,7 +38,7 @@ export const GAMES: GameInfo[] = [
     id: 'trivia',
     name: 'Trivia',
     description: 'Preguntas de fútbol con 4 opciones. Sumás por acertar y por rapidez.',
-    available: false,
+    available: true,
     path: '/trivia',
     hasElo: false,
   },

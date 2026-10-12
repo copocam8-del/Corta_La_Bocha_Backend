@@ -9,6 +9,7 @@ import { SoloMatchesModule } from './solo-matches/solo-matches.module';
 import { CategoriesModule } from './categories/categories.module';
 import { GamesModule } from './games/games.module';
 import { AhorcadoModule } from './ahorcado/ahorcado.module';
+import { TriviaModule } from './trivia/trivia.module';
 
 @Module({
   imports: [
@@ -22,6 +23,7 @@ import { AhorcadoModule } from './ahorcado/ahorcado.module';
     CategoriesModule,
     GamesModule,
     AhorcadoModule,
+    TriviaModule,
   ],
 })
 export class AppModule {} 

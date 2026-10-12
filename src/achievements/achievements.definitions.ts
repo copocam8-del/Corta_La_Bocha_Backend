@@ -133,6 +133,28 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'ahorcado',
     isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
   },
+  // ── Trivia ──
+  {
+    id: 'trivia_perfecta',
+    name: 'Enciclopedia futbolera',
+    description: 'Respondé bien todas las preguntas de una trivia.',
+    game: 'trivia',
+    isUnlocked: (c) => typeof c.extra?.aciertos === 'number' && c.extra.aciertos === c.extra.total,
+  },
+  {
+    id: 'trivia_rapida',
+    name: 'Rápido de reflejos',
+    description: 'Acertá 8 o más preguntas de una trivia respondiendo en menos de 6 segundos en promedio.',
+    game: 'trivia',
+    isUnlocked: (c) => Number(c.extra?.aciertos ?? 0) >= 8 && Number(c.extra?.promedioSegundos ?? 99) < 6,
+  },
+  {
+    id: 'trivia_diez',
+    name: 'Profe de fútbol',
+    description: 'Aprobá 10 trivias (6 o más aciertos).',
+    game: 'trivia',
+    isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
+  },
 ];
 
 export const ACHIEVEMENT_IDS = ACHIEVEMENTS.map((a) => a.id);

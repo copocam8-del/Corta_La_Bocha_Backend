@@ -228,6 +228,17 @@ prisma/
   rapidez (−1 cada 5 s), mínimo 10. Perder = 0. Partidas sin terminar por más de 30 min = perdidas.
 - Banco en `ahorcado-bank.ts` (sólo nombres reales y conocidos). Logros: `redonda_intacta`, `ahorcado_crack`, `ahorcado_diez`.
 
+## Trivia (`src/trivia/`)
+
+- `GET /trivia/categorias`, `POST /trivia {categoria?, dificultad?}` → primera pregunta (texto y 4 opciones
+  mezcladas; **la correcta queda en `matches.state`**). `POST /trivia/:id/responder {opcion: 0-3 | null}` → si fue
+  correcta, cuál era, puntos y la siguiente. 10 preguntas de 20 s; el tiempo lo mide el servidor (2 s de margen por la
+  red: más tarde no vale aunque sea la correcta). Puntos: 10/15/20 según dificultad + hasta 10 por rapidez.
+  Aprobás (= partida ganada) con 6 aciertos.
+- Banco en `trivia-bank.ts` (más de 200 preguntas). **Sólo datos seguros y que no cambian**: nada de "cuántos
+  Mundiales ganó X" ni récords que se mueven con cada Mundial (el test lo controla). Reglas reutilizables
+  (puntaje, mezcla, elegir preguntas) en `trivia-rules.ts`. Logros: `trivia_perfecta`, `trivia_rapida`, `trivia_diez`.
+
 ## Logros
 
 - Definiciones en `src/achievements/achievements.definitions.ts` (condición = función sobre las estadísticas y la
