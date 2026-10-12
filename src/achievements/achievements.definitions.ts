@@ -177,6 +177,28 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'trivia_diaria',
     isUnlocked: (c) => Number(c.extra?.racha ?? 0) >= 30,
   },
+  // ── Sopa de letras ──
+  {
+    id: 'sopa_relampago',
+    name: 'Ojo de lince',
+    description: 'Encontrá todas las palabras de una sopa de letras en menos de un minuto.',
+    game: 'sopa_de_letras',
+    isUnlocked: (c) => c.won && Number(c.extra?.segundos ?? 999) < 60,
+  },
+  {
+    id: 'sopa_dificil',
+    name: 'Sopa de campeón',
+    description: 'Completá una sopa de letras en dificultad Difícil.',
+    game: 'sopa_de_letras',
+    isUnlocked: (c) => c.won && c.extra?.dificultad === 'dificil',
+  },
+  {
+    id: 'sopa_diez',
+    name: 'Buscador incansable',
+    description: 'Completá 10 sopas de letras.',
+    game: 'sopa_de_letras',
+    isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
+  },
 ];
 
 export const ACHIEVEMENT_IDS = ACHIEVEMENTS.map((a) => a.id);

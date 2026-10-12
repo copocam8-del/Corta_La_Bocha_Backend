@@ -54,7 +54,7 @@ export const GAMES: GameInfo[] = [
     id: 'sopa_de_letras',
     name: 'Sopa de letras',
     description: 'Encontrá los nombres futboleros escondidos en la grilla.',
-    available: false,
+    available: true,
     path: '/sopa-de-letras',
     hasElo: false,
   },
