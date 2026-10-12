@@ -2,6 +2,7 @@ import { IsEmail, IsNotEmpty, IsString, IsOptional, IsDateString, Length, Matche
 import {
   MIN_AGE,
   MinAge,
+  NAME_MAX,
   NormalizeEmail,
   PASSWORD_MAX,
   PASSWORD_MIN,
@@ -24,13 +25,13 @@ export class RegisterDto {
   @TrimOrUndefined()
   username?: string;
 
-  @MaxLength(50, { message: 'El nombre puede tener hasta 50 caracteres' })
+  @MaxLength(NAME_MAX, { message: `El nombre puede tener hasta ${NAME_MAX} caracteres` })
   @IsString({ message: 'El nombre debe ser texto' })
   @IsOptional()
   @TrimOrUndefined()
   name?: string;
 
-  @MaxLength(50, { message: 'El apellido puede tener hasta 50 caracteres' })
+  @MaxLength(NAME_MAX, { message: `El apellido puede tener hasta ${NAME_MAX} caracteres` })
   @IsString({ message: 'El apellido debe ser texto' })
   @IsOptional()
   @TrimOrUndefined()

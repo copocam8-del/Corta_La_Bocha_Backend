@@ -1,6 +1,6 @@
 import { Transform } from 'class-transformer'
 import { IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator'
-import { USERNAME_MAX, USERNAME_MIN, USERNAME_REGEX } from '../../auth/dto/auth-rules'
+import { NAME_MAX, USERNAME_MAX, USERNAME_MIN, USERNAME_REGEX } from '../../auth/dto/auth-rules'
 import { AVATAR_IDS } from '../avatars'
 
 // Campos de texto del perfil: "" significa "borrar" (se guarda null)
@@ -11,9 +11,31 @@ const TrimOrNull = () =>
     return trimmed === '' ? null : trimmed
   })
 
+// Nombre y apellido no se pueden borrar: si llegan "", sólo espacios o null, se ignoran (no se tocan)
+const TrimOrIgnore = () =>
+  Transform(({ value }: { value: unknown }) => {
+    if (value === null) return undefined
+    if (typeof value !== 'string') return value
+    const trimmed = value.trim()
+    return trimmed === '' ? undefined : trimmed
+  })
+
 // Los decoradores se evalúan de abajo hacia arriba (ver auth/dto/register.dto.ts).
 // IsOptional deja pasar null (= borrar el campo) sin validar el resto.
 export class UpdateProfileDto {
+  // Mismas reglas que en el registro (RegisterDto.name / lastName)
+  @MaxLength(NAME_MAX, { message: `El nombre puede tener hasta ${NAME_MAX} caracteres` })
+  @IsString({ message: 'El nombre debe ser texto' })
+  @IsOptional()
+  @TrimOrIgnore()
+  first_name?: string
+
+  @MaxLength(NAME_MAX, { message: `El apellido puede tener hasta ${NAME_MAX} caracteres` })
+  @IsString({ message: 'El apellido debe ser texto' })
+  @IsOptional()
+  @TrimOrIgnore()
+  last_name?: string
+
   @Matches(USERNAME_REGEX, { message: 'El nombre de usuario sólo puede tener letras, números y _' })
   @Length(USERNAME_MIN, USERNAME_MAX, {
     message: `El nombre de usuario debe tener entre ${USERNAME_MIN} y ${USERNAME_MAX} caracteres`,

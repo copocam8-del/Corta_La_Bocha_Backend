@@ -70,7 +70,8 @@ export class UsersService {
   }
 
   async update(id: string, data: UpdateProfileDto) {
-    const { username, ...profileFields } = data
+    // Nombre de usuario, nombre y apellido van en users; el resto, en profiles
+    const { username, first_name, last_name, ...profileFields } = data
 
     if (username) {
       // "Messi" y "messi" cuentan como el mismo nombre de usuario
@@ -86,6 +87,8 @@ export class UsersService {
         where: { id },
         data: {
           ...(username ? { username } : {}),
+          ...(first_name ? { first_name } : {}),
+          ...(last_name ? { last_name } : {}),
           profile: {
             upsert: {
               create: profileFields,

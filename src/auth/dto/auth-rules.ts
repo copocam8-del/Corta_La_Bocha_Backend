@@ -8,6 +8,7 @@ export const PASSWORD_MAX = 72; // bcrypt ignora lo que pase de 72 bytes
 export const USERNAME_MIN = 3;
 export const USERNAME_MAX = 30;
 export const USERNAME_REGEX = /^[a-zA-Z0-9_]+$/;
+export const NAME_MAX = 50; // nombre y apellido (columnas VARCHAR(50))
 export const MIN_AGE = 13;
 
 // Emails siempre en minúsculas y sin espacios: "Juan@Mail.com " === "juan@mail.com"
