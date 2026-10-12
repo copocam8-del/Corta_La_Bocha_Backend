@@ -37,6 +37,13 @@ npx prisma db seed          # cargar categorías (prisma/seed.ts)
 
 Todos los `*.spec.ts` pasan (`npx jest`). La IA siempre va mockeada en los tests.
 
+### Base local para programar
+
+`npm run db:local` (PostgreSQL local con Docker o embedded-postgres + migraciones + seed; `-- --verificar` levanta,
+migra y apaga) y `npm run dev:local` (servidor con `.env.local`). Ambos **se niegan a arrancar si `DATABASE_URL` de
+`.env.local` no es localhost**. Paso a paso para Windows en el README. Scripts en `scripts/*.mjs`; datos en `.local-db/`
+(ignorado por git).
+
 ### Probar con un servidor real (sin tocar producción)
 
 El `.env` apunta a la base de **producción**: nunca levantes el server ni corras Prisma con ese `.env` solo.

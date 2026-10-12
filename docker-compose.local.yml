@@ -1,0 +1,16 @@
+# Base PostgreSQL para programar en tu compu (la usa "npm run db:local" si Docker está andando).
+# Los valores salen de DATABASE_URL de .env.local (los pasa el script). Los datos quedan en el volumen clb-db-local.
+services:
+  db:
+    image: postgres:17
+    environment:
+      POSTGRES_USER: ${CLB_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${CLB_DB_PASSWORD:-postgres}
+      POSTGRES_DB: ${CLB_DB_NAME:-corta_la_bocha}
+    ports:
+      - "127.0.0.1:${CLB_DB_PORT:-5433}:5432"
+    volumes:
+      - clb-db-local:/var/lib/postgresql/data
+
+volumes:
+  clb-db-local:
