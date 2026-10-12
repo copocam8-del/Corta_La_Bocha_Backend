@@ -155,6 +155,28 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'trivia',
     isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
   },
+  // ── Desafío del día ──
+  {
+    id: 'diaria_perfecta',
+    name: 'Día perfecto',
+    description: 'Respondé bien todas las preguntas del desafío del día.',
+    game: 'trivia_diaria',
+    isUnlocked: (c) => typeof c.extra?.aciertos === 'number' && c.extra.aciertos === c.extra.total,
+  },
+  {
+    id: 'diaria_racha_7',
+    name: 'Semana completa',
+    description: 'Jugá el desafío del día 7 días seguidos.',
+    game: 'trivia_diaria',
+    isUnlocked: (c) => Number(c.extra?.racha ?? 0) >= 7,
+  },
+  {
+    id: 'diaria_racha_30',
+    name: 'Abonado a la platea',
+    description: 'Jugá el desafío del día 30 días seguidos.',
+    game: 'trivia_diaria',
+    isUnlocked: (c) => Number(c.extra?.racha ?? 0) >= 30,
+  },
 ];
 
 export const ACHIEVEMENT_IDS = ACHIEVEMENTS.map((a) => a.id);

@@ -10,6 +10,7 @@ import { CategoriesModule } from './categories/categories.module';
 import { GamesModule } from './games/games.module';
 import { AhorcadoModule } from './ahorcado/ahorcado.module';
 import { TriviaModule } from './trivia/trivia.module';
+import { DesafioModule } from './desafio-diario/desafio.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { TriviaModule } from './trivia/trivia.module';
     GamesModule,
     AhorcadoModule,
     TriviaModule,
+    DesafioModule,
   ],
 })
 export class AppModule {} 

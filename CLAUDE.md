@@ -239,6 +239,19 @@ prisma/
   Mundiales ganó X" ni récords que se mueven con cada Mundial (el test lo controla). Reglas reutilizables
   (puntaje, mezcla, elegir preguntas) en `trivia-rules.ts`. Logros: `trivia_perfecta`, `trivia_rapida`, `trivia_diez`.
 
+## Desafío del día (`src/desafio-diario/`)
+
+- Misma serie para todos cada día argentino (cambia a medianoche, UTC−3): 1 fácil, 2 medias y 2 difíciles del banco
+  de la trivia, elegidas y mezcladas con una semilla que depende sólo de la fecha (`preguntasDelDia`).
+- Tabla `daily_challenges` (migración `20261012140000_desafio_diario`, sin aplicar): una fila por usuario y día con
+  índice único → **una sola vez por día**. Si recarga a la mitad, retoma (el reloj sigue corriendo en el servidor; si
+  la pregunta venció mientras no estaba, cuenta como "sin tiempo").
+- `GET /desafio-diario/hoy` (si ya jugó, resultado + texto para compartir + racha), `POST /desafio-diario/empezar`,
+  `POST /desafio-diario/:id/responder {opcion|null}`, `GET /desafio-diario/tabla` (tabla del día con mi posición).
+- Racha = días seguidos jugados (si ayer no jugó, arranca de nuevo). Texto para compartir con 🟩🟥⬛, sin spoilers.
+  Gana (cuenta como partida ganada) con 3 de 5. Logros: `diaria_perfecta`, `diaria_racha_7`, `diaria_racha_30`.
+- Con 40 preguntas difíciles en el banco, las difíciles se repiten cada ~20 días: sumá preguntas al banco de la trivia.
+
 ## Logros
 
 - Definiciones en `src/achievements/achievements.definitions.ts` (condición = función sobre las estadísticas y la

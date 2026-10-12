@@ -32,6 +32,7 @@ model users {
   achievements user_achievements[]
   results      match_results[]
   game_stats   game_stats[]
+  daily        daily_challenges[]
 }
 
 model profiles {
@@ -153,9 +154,35 @@ model matches {
   user   users?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
   rounds  rounds[]
   results match_results[]
+  daily   daily_challenges?
 
   @@index([user_id])
   @@index([user_id, game, status])
+}
+
+// Desafío del día (trivia diaria): una fila por usuario y día argentino ("AAAA-MM-DD").
+// El índice único (user_id, day) garantiza que se juegue una sola vez por día.
+model daily_challenges {
+  id          String    @id @default(uuid()) @db.Uuid
+  user_id     String    @db.Uuid
+  day         String    @db.VarChar(10)
+  match_id    String    @unique @db.Uuid
+  completed   Boolean   @default(false)
+  aciertos    Int       @default(0)
+  puntos      Int       @default(0)
+  ms_total    Int       @default(0)
+  // Resultado para compartir sin spoilers: una letra por pregunta (V = bien, X = mal, T = sin tiempo)
+  resultado   String    @default("") @db.VarChar(20)
+  // Días seguidos jugados hasta este (incluido)
+  racha       Int       @default(0)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  finished_at DateTime?
+
+  user  users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  match matches @relation(fields: [match_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, day])
+  @@index([day, completed])
 }
 
 // Estadísticas de cada usuario en cada juego. Los totales generales siguen en profiles.

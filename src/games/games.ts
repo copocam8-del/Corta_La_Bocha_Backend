@@ -46,7 +46,7 @@ export const GAMES: GameInfo[] = [
     id: 'trivia_diaria',
     name: 'Desafío del día',
     description: 'Las mismas preguntas para todos, una vez por día. Mantené tu racha.',
-    available: false,
+    available: true,
     path: '/desafio-diario',
     hasElo: false,
   },
