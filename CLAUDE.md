@@ -112,9 +112,7 @@ prisma/
     como perdidas (cortan la racha); si tienen más de 24 h, se cierran sin tocar estadísticas.
   - La API vieja por rondas (`POST /solo-matches`, `.../answers`, `.../validate`) se borró: no controlaba de quién
     era la partida y dejaba llamar a la IA sin límite.
-- Multijugador: `POST /rooms/:code/matches/:matchId/rounds/:roundId/tally` suma puntos una sola vez por ronda y
-  `POST /rooms/:code/matches/:matchId/finish` decide el ganador y suma partidas/victorias/rachas.
-  **El frontend multijugador todavía es una simulación y no llama a estos endpoints.**
+- Multijugador en tiempo real (`src/rooms/`), ver la sección "Multijugador" más abajo.
 - Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
   (mismo set en el frontend). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
 
@@ -166,6 +164,30 @@ prisma/
    "Jugador Promesa" envejece: revisarla cada temporada.
 - `POST /tutti-frutti/validate-round` (una ronda suelta) pide sesión y tiene límite de 20 por minuto: cada llamada
   gasta créditos del proveedor de IA.
+
+## Multijugador (Socket.IO)
+
+- **El servidor manda en todo** (`src/rooms/game-engine.ts`): sortea letra (de `letrasDe(temática)`, sin repetir
+  en la partida) y categorías, controla el reloj y el ¡Basta! (corta para todos, sólo con todo completo), junta las
+  respuestas, las valida con el mismo validador (UNA llamada por ronda para todos los jugadores) y puntúa con
+  `scoring.ts`. Fases: `lobby → countdown (3 s) → playing → collecting (≤2 s) → validating → results (10 s) → … → finished`.
+- El estado de cada sala vive **en memoria** (una sola instancia en Render). En la base quedan sala, jugadores,
+  partida, rondas y respuestas. Si el server se reinicia, las partidas en curso se pierden y las salas vuelven al lobby.
+- `rooms.gateway.ts`: la conexión se autentica con el JWT en el handshake (`io(url, { auth: { token } })`, middleware
+  antes de aceptar). El userId sale **siempre** del token. Eventos (todos con respuesta `{ ok, error }`):
+  `room:join|leave|settings|start|again`, `round:answers {answers, final?}`, `round:basta {answers}`,
+  `queue:join {tematica, size}`, `queue:leave`. El servidor manda `room:state` (estado completo, armado por jugador:
+  cada uno ve sólo sus respuestas), `queue:state` y `queue:matched {code}`.
+- HTTP: sólo `POST /rooms {tematica, rounds, seconds}` (crea sala privada, devuelve `{code}`) y `GET /rooms/:code`.
+  La API vieja por votos (start/answers/close/vote/tally/finish) se borró. La tabla `votes` quedó sin uso: con IA como
+  árbitro y ranking/ELO, los votos entre jugadores se pueden arreglar entre amigos.
+- Reglas: 2 a 8 jugadores; rondas 1/3/5; tiempo 30/45/60/90/120 s. Desconexión en el lobby → sale a los 15 s.
+  Recarga en partida → vuelve con lo que había escrito. Anfitrión desconectado 10 s → pasa al siguiente. Menos de 2
+  conectados por 20 s → termina (los que no volvieron cuentan como abandono = perdida).
+- Al final, `RoomsService.finishMatch` (una sola vez, en transacción): partidas, victorias (empate en el primer
+  puesto = ganan todos), puntos, rachas y logros. Si la IA no validó algo o no se jugó ninguna ronda, no cuenta.
+- Cola pública (`matchmaking.ts`): por temática y tamaño (`pocos` 2–4, `muchos` 5–8); con el mínimo espera 10 s por
+  más y arma la sala (3 rondas de 60 s), que arranca sola cuando entran todos (o a los 15 s con ≥2).
 
 ## Logros
 
