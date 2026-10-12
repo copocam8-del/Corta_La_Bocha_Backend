@@ -23,6 +23,8 @@ const PUBLIC_PROFILE_SELECT = {
       total_points: true,
       best_streak: true,
       current_streak: true,
+      elo: true,
+      elo_games: true,
     },
   },
 }

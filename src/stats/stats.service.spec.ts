@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { StatsService } from './stats.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { periodStart } from './periods';
 
 describe('StatsService', () => {
   let service: StatsService;
@@ -57,18 +58,53 @@ describe('StatsService', () => {
     expect(prisma.profiles.update.mock.calls[0][0].data.total_points).toEqual({ increment: 0 });
   });
 
-  it('la posición en el ranking es la cantidad de jugadores con más puntos + 1', async () => {
-    prisma.profiles.findUnique.mockResolvedValue({ total_points: 100 });
-    prisma.profiles.count.mockResolvedValueOnce(4).mockResolvedValueOnce(20);
-    await expect(service.getUserRanking('u1')).resolves.toEqual({ position: 5, totalPlayers: 20, totalPoints: 100 });
-    expect(prisma.profiles.count).toHaveBeenNthCalledWith(1, { where: { total_points: { gt: 100 } } });
+  const fila = (id: string, total_points: number, elo = 1000) => ({
+    total_points, matches_played: 1, matches_won: 0, best_streak: 0, avatar_id: null, elo,
+    user: { id, username: id, country: null },
+  });
+
+  it('mi posición aunque no esté en el top (global)', async () => {
+    prisma.profiles.findMany.mockResolvedValue([fila('a', 300), fila('b', 200), fila('u1', 100), fila('c', 50)]);
+    prisma.profiles.findUnique.mockResolvedValue({ total_points: 100, elo: 1016, elo_games: 1 });
+    await expect(service.getUserRanking('u1')).resolves.toMatchObject({
+      period: 'global', position: 3, totalPlayers: 4, totalPoints: 100, elo: 1016,
+    });
+  });
+
+  it('ranking ELO: sólo quienes jugaron partidas con ELO, ordenado por ELO', async () => {
+    prisma.profiles.findMany.mockResolvedValue([fila('a', 10, 1100), fila('b', 900, 1050)]);
+    const top = await service.getLeaderboard('elo');
+    expect(prisma.profiles.findMany.mock.calls[0][0]).toMatchObject({ where: { elo_games: { gt: 0 } }, orderBy: [{ elo: 'desc' }, { matches_won: 'desc' }] });
+    expect(top.map((t) => [t.userId, t.position, t.elo])).toEqual([['a', 1, 1100], ['b', 2, 1050]]);
+  });
+
+  it('semanal: suma sólo las partidas desde el lunes (hora argentina)', async () => {
+    const results = {
+      groupBy: jest
+        .fn()
+        .mockResolvedValueOnce([
+          { user_id: 'b', _sum: { points: 40 }, _count: { _all: 2 } },
+          { user_id: 'a', _sum: { points: 90 }, _count: { _all: 3 } },
+        ])
+        .mockResolvedValueOnce([{ user_id: 'a', _count: { _all: 2 } }]),
+    };
+    (prisma as unknown as { match_results: unknown }).match_results = results;
+    (prisma as unknown as { users: unknown }).users = {
+      findMany: jest.fn().mockResolvedValue([
+        { id: 'a', username: 'Ana', country: null, profile: { avatar_id: null, best_streak: 0, elo: 1000 } },
+        { id: 'b', username: 'Beto', country: null, profile: null },
+      ]),
+    };
+    const top = await service.getLeaderboard('semanal');
+    expect(top.map((t) => [t.username, t.position, t.totalPoints, t.matchesPlayed, t.matchesWon])).toEqual([
+      ['Ana', 1, 90, 3, 2],
+      ['Beto', 2, 40, 2, 0],
+    ]);
+    const since = results.groupBy.mock.calls[0][0].where.created_at.gte as Date;
+    expect(since.getTime()).toBe(periodStart('semanal')!.getTime());
   });
 
   it('en el top, los empatados comparten posición y no se exponen datos privados', async () => {
-    const fila = (id: string, total_points: number) => ({
-      total_points, matches_played: 1, matches_won: 0, best_streak: 0, avatar_id: null,
-      user: { id, username: id, country: null },
-    });
     prisma.profiles.findMany.mockResolvedValue([fila('a', 50), fila('b', 50), fila('c', 10)]);
     const top = await service.getTopPlayers();
     expect(top.map((t) => t.position)).toEqual([1, 1, 3]);

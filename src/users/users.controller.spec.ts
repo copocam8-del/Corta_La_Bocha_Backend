@@ -32,7 +32,7 @@ async function validar(body: object) {
 
 describe('UsersController', () => {
   const usersService = { findOne: jest.fn(), findAll: jest.fn(), update: jest.fn() };
-  const statsService = { getUserRanking: jest.fn(), getTopPlayers: jest.fn() };
+  const statsService = { getUserRanking: jest.fn(), getTopPlayers: jest.fn(), getLeaderboard: jest.fn() };
   const achievementsService = { listForUser: jest.fn() };
   let controller: UsersController;
 
@@ -67,7 +67,15 @@ describe('UsersController', () => {
 
   it('GET /users/me/ranking usa el usuario del token', async () => {
     await controller.getMyRanking({ user: { userId: 'u1' } });
-    expect(statsService.getUserRanking).toHaveBeenCalledWith('u1');
+    expect(statsService.getUserRanking).toHaveBeenCalledWith('u1', 'global');
+    await controller.getMyRanking({ user: { userId: 'u1' } }, 'semanal');
+    expect(statsService.getUserRanking).toHaveBeenLastCalledWith('u1', 'semanal');
+  });
+
+  it('GET /users/ranking acepta global, semanal, mensual y elo; otro período da 400', async () => {
+    await controller.getRanking('elo');
+    expect(statsService.getLeaderboard).toHaveBeenCalledWith('elo', 50);
+    expect(() => controller.getRanking('anual')).toThrow('Período inválido');
   });
 
   it('GET /users/me/achievements usa el usuario del token', async () => {

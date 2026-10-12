@@ -8,6 +8,8 @@ import {
   Body,
   Request,
   UseGuards,
+  Query,
+  BadRequestException,
 } from '@nestjs/common'
 
 import { AuthGuard } from '@nestjs/passport'
@@ -16,6 +18,15 @@ import { StatsService } from '../stats/stats.service'
 import { AchievementsService } from '../achievements/achievements.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { authValidationPipe } from '../auth/auth-validation.pipe'
+import { PERIODS, type Period } from '../stats/periods'
+
+function parsePeriod(period?: string): Period {
+  if (!period) return 'global'
+  if (!(PERIODS as readonly string[]).includes(period)) {
+    throw new BadRequestException('Período inválido (global, semanal, mensual o elo)')
+  }
+  return period as Period
+}
 
 @UseGuards(AuthGuard('jwt'))
 @Controller('users')
@@ -32,10 +43,10 @@ export class UsersController {
     return this.usersService.findOwn(req.user.userId)
   }
 
-  // Posición del usuario logueado en el ranking global
+  // Posición del usuario logueado (aunque no esté en el top). ?period=global|semanal|mensual|elo
   @Get('me/ranking')
-  getMyRanking(@Request() req) {
-    return this.statsService.getUserRanking(req.user.userId)
+  getMyRanking(@Request() req, @Query('period') period?: string) {
+    return this.statsService.getUserRanking(req.user.userId, parsePeriod(period))
   }
 
   // Todos los logros, con los desbloqueados por el usuario marcados
@@ -50,10 +61,11 @@ export class UsersController {
     return this.usersService.update(req.user.userId, body)
   }
 
-  // Ranking global: los 50 mejores (sólo datos públicos). Va antes de ':id' para que no lo tape.
+  // Ranking: los 50 mejores (sólo datos públicos). Va antes de ':id' para que no lo tape.
+  // ?period=global (puntos totales, por defecto) | semanal | mensual (partidas del período) | elo
   @Get('ranking')
-  getRanking() {
-    return this.statsService.getTopPlayers(50)
+  getRanking(@Query('period') period?: string) {
+    return this.statsService.getLeaderboard(parsePeriod(period), 50)
   }
 
   // Listado público: sin email, fecha de nacimiento ni nombre real

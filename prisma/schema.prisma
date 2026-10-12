@@ -30,6 +30,7 @@ model users {
   votes        votes[]
   solo_matches matches[]
   achievements user_achievements[]
+  results      match_results[]
 }
 
 model profiles {
@@ -51,7 +52,34 @@ model profiles {
   best_streak     Int @default(0)
   current_streak  Int @default(0)
 
+  // ELO (arranca en 1000). elo_games = partidas que lo movieron (para mostrar "sin ranking" si es 0)
+  elo       Int @default(1000)
+  elo_games Int @default(0)
+
   user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+// Resultado de cada jugador en cada partida que contó para estadísticas. Con esto se arman las
+// tablas semanal y mensual (sumando las partidas del período) y el historial de ELO.
+model match_results {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  match_id   String   @db.Uuid
+  game       String   @default("tutti_frutti") @db.VarChar(30)
+  mode       String   @db.VarChar(20)
+  points     Int      @default(0)
+  won        Boolean  @default(false)
+  abandoned  Boolean  @default(false)
+  elo_before Int
+  elo_after  Int
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  user  users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  match matches @relation(fields: [match_id], references: [id], onDelete: Cascade)
+
+  @@unique([match_id, user_id])
+  @@index([created_at])
+  @@index([user_id, created_at])
 }
 
 // Logros desbloqueados. Las definiciones (nombre, descripción, condición) están en
@@ -117,7 +145,8 @@ model matches {
 
   room   rooms?   @relation(fields: [room_id], references: [id], onDelete: SetNull)
   user   users?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
-  rounds rounds[]
+  rounds  rounds[]
+  results match_results[]
 
   @@index([user_id])
 }

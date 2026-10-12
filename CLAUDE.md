@@ -113,6 +113,17 @@ prisma/
   - La API vieja por rondas (`POST /solo-matches`, `.../answers`, `.../validate`) se borró: no controlaba de quién
     era la partida y dejaba llamar a la IA sin límite.
 - Multijugador en tiempo real (`src/rooms/`), ver la sección "Multijugador" más abajo.
+- **ELO** (`src/stats/elo.ts`): arranca en 1000, K = 32. Contra la máquina, ELO fijo por dificultad (fácil 800,
+  medio 1000, difícil 1200, experto 1400); abandonar = derrota. Multijugador: cada uno contra cada uno (gana el que
+  hizo más puntos), dividido por la cantidad de rivales; el que abandona pierde contra todos. Las partidas "sin
+  validar" no cuentan. Se guarda en `profiles.elo` / `elo_games`.
+- **Ligas**: cada partida que cuenta guarda una fila por jugador en `match_results` (puntos, ganó, abandonó, ELO
+  antes/después, `game`). `GET /users/ranking?period=global|semanal|mensual|elo` y `GET /users/me/ranking?period=…`
+  (posición aunque no estés en el top; `position: null` si no jugaste en el período). Semana desde el lunes 00:00 y mes
+  desde el día 1 00:00, **hora argentina** (`src/stats/periods.ts`). Las ligas empiezan a contar desde que se aplica la
+  migración `20261012120000_ligas_elo` (no hay datos viejos en `match_results`).
+- Ojo con las fechas: las columnas son `TIMESTAMP` sin zona horaria; las que importan (`started_at`, `match_results.created_at`)
+  las pone el servidor con `new Date()`, no el `now()` de la base.
 - Perfil: `PUT /users/me` valida con el pipe de auth. El avatar se elige de `src/users/avatars.ts`
   (mismo set en el frontend). `GET /users/me/ranking` y `GET /users/ranking` (top 50, datos públicos).
 

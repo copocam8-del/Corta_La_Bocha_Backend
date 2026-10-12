@@ -17,7 +17,7 @@ describe('RoomsService (base del multijugador)', () => {
       typeof arg === 'function' ? (arg as (tx: unknown) => unknown)(prisma) : Promise.all(arg as unknown[]),
     ),
   };
-  const stats = { recordMatchResult: jest.fn() };
+  const stats = { recordMatchResult: jest.fn(), rateMultiplayer: jest.fn() };
   const achievements = { unlockFor: jest.fn() };
   const perfil = { matches_played: 1, matches_won: 1, total_points: 20, current_streak: 1, best_streak: 1 };
 
@@ -59,6 +59,8 @@ describe('RoomsService (base del multijugador)', () => {
     expect(stats.recordMatchResult).toHaveBeenCalledWith('u3', { won: false, points: 0 }, prisma); // abandonó: perdió
     expect(achievements.unlockFor).toHaveBeenCalledWith('u1', expect.objectContaining({ mode: 'multiplayer', won: true }), prisma);
     expect(res.u1.map((a) => a.id)).toEqual(['campeon_del_barrio']);
+    // ELO de todos juntos (con los resultados de la partida)
+    expect(stats.rateMultiplayer).toHaveBeenCalledWith(prisma, 'm1', resultados);
     expect(prisma.rooms.update).toHaveBeenCalledWith({ where: { id: 'room1' }, data: { status: 'waiting' } });
   });
 
@@ -73,6 +75,7 @@ describe('RoomsService (base del multijugador)', () => {
     await service.finishMatch('m1', 'room1', resultados, false);
     expect(prisma.matches.updateMany).toHaveBeenCalled();
     expect(stats.recordMatchResult).not.toHaveBeenCalled();
+    expect(stats.rateMultiplayer).not.toHaveBeenCalled();
     expect(achievements.unlockFor).not.toHaveBeenCalled();
   });
 

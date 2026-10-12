@@ -33,7 +33,7 @@ describe('SoloMatchesService (partida rápida)', () => {
     $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
   };
   const validator = { validateAnswers: validadorFalso({}) };
-  const stats = { recordMatchResult: jest.fn() };
+  const stats = { recordMatchResult: jest.fn(), rateVsMachine: jest.fn() };
   const achievements = { unlockFor: jest.fn() };
 
   const perfil = { matches_played: 1, matches_won: 1, total_points: 20, current_streak: 1, best_streak: 1 };
@@ -119,6 +119,10 @@ describe('SoloMatchesService (partida rápida)', () => {
       userAnswer: 'Ortega', status: 'valid', isValid: true, canonical: 'Ariel Ortega', reason: 'Válida.', points: 20,
     });
     expect(stats.recordMatchResult).toHaveBeenCalledWith('u1', { won: true, points: 20 }, prisma);
+    // ELO contra la máquina con el ELO fijo de la dificultad
+    expect(stats.rateVsMachine).toHaveBeenCalledWith(prisma, ID, expect.objectContaining({
+      userId: 'u1', outcome: 'win', difficulty: 'experto', points: 20, abandoned: false,
+    }));
   });
 
   it('las respuestas de la máquina pasan por la misma validación y suman como un jugador más', async () => {
@@ -162,6 +166,7 @@ describe('SoloMatchesService (partida rápida)', () => {
 
     expect(res).toMatchObject({ validationIncomplete: true, playerPoints: 0, stats: null, newAchievements: [] });
     expect(stats.recordMatchResult).not.toHaveBeenCalled();
+    expect(stats.rateVsMachine).not.toHaveBeenCalled(); // sin validar no mueve el ELO
     expect(achievements.unlockFor).not.toHaveBeenCalled();
     expect(prisma.answers.create.mock.calls[0][0].data).toMatchObject({ is_valid: null, validated_by: 'unverified' });
     expect(prisma.matches.update).toHaveBeenCalledWith(
@@ -252,6 +257,7 @@ describe('SoloMatchesService (partida rápida)', () => {
       await service.closeAbandonedMatches('u1');
       expect(stats.recordMatchResult).toHaveBeenCalledTimes(1);
       expect(stats.recordMatchResult).toHaveBeenCalledWith('u1', { won: false, points: 0 }, prisma);
+      expect(stats.rateVsMachine).toHaveBeenCalledWith(prisma, 'vieja', expect.objectContaining({ outcome: 'loss', abandoned: true }));
 
       // Si justo se estaba terminando (ya no está "en juego"), no se cuenta
       stats.recordMatchResult.mockClear();

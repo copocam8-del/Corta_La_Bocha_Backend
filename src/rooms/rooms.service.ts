@@ -171,6 +171,8 @@ export class RoomsService implements RoomStore {
       await tx.rooms.update({ where: { id: roomId }, data: { status: 'waiting' } });
       if (!countsForStats) return;
 
+      // ELO de todos con los ELO de antes de la partida + registro para las ligas
+      await this.stats.rateMultiplayer(tx, matchId, results);
       for (const r of results) {
         const updated = await this.stats.recordMatchResult(r.userId, { won: r.won, points: r.points }, tx);
         newAchievements[r.userId] = await this.achievements.unlockFor(

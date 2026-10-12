@@ -85,7 +85,7 @@ export class SoloMatchesService {
 
     // Respuestas que llegan mucho después del final: la partida se dio por abandonada
     if (elapsedRaw > roundMs + GRACIA_MS) {
-      await this.abandonMatch(match.id, userId, true);
+      await this.abandonMatch(match.id, userId, true, match.ai_difficulty);
       throw new GoneException('La partida venció: pasó demasiado tiempo desde que terminó la ronda. Cuenta como perdida.');
     }
 
@@ -172,7 +172,7 @@ export class SoloMatchesService {
       });
       const categoryIdByName = new Map(categoryRows.map((c) => [c.name, c.id]));
 
-      const { profile, newAchievements } = await this.prisma.$transaction(async (tx) => {
+      const { profile, newAchievements, elo } = await this.prisma.$transaction(async (tx) => {
         for (const r of results) {
           const categoryId = categoryIdByName.get(r.category);
           if (!categoryId) continue; // categoría no sembrada en la base: se puntúa igual, no se guarda
@@ -190,9 +190,17 @@ export class SoloMatchesService {
         }
         await tx.rounds.update({ where: { id: round.id }, data: { status: 'finished', finished_at: new Date() } });
         await tx.matches.update({ where: { id: matchId }, data: { status: 'finished', finished_at: new Date() } });
-        if (validationIncomplete) return { profile: null, newAchievements: [] };
+        if (validationIncomplete) return { profile: null, newAchievements: [], elo: null };
 
         const updated = await this.stats.recordMatchResult(userId, { won: outcome === 'win', points: playerPoints }, tx);
+        const eloAfter = await this.stats.rateVsMachine(tx, matchId, {
+          userId,
+          points: playerPoints,
+          won: outcome === 'win',
+          abandoned: false,
+          outcome,
+          difficulty: match.ai_difficulty ?? 'medio',
+        });
         const unlocked = await this.achievements.unlockFor(
           userId,
           {
@@ -207,7 +215,7 @@ export class SoloMatchesService {
           },
           tx,
         );
-        return { profile: updated, newAchievements: unlocked };
+        return { profile: updated, newAchievements: unlocked, elo: { before: updated.elo, after: eloAfter } };
       });
 
       return {
@@ -227,6 +235,8 @@ export class SoloMatchesService {
           currentStreak: profile.current_streak,
           bestStreak: profile.best_streak,
         },
+        // ELO antes y después de la partida (null si no contó)
+        elo,
       };
     } catch (e) {
       // Si algo falló, liberamos la partida para poder reintentar
@@ -244,16 +254,19 @@ export class SoloMatchesService {
   async closeAbandonedMatches(userId: string, now = Date.now()) {
     const open = await this.prisma.matches.findMany({
       where: { user_id: userId, mode: 'vs_ai', status: 'in_progress' },
-      select: { id: true, round_seconds: true, created_at: true, rounds: { select: { started_at: true }, take: 1 } },
+      select: {
+        id: true, round_seconds: true, created_at: true, ai_difficulty: true,
+        rounds: { select: { started_at: true }, take: 1 },
+      },
     });
     for (const m of open) {
       const started = (m.rounds[0]?.started_at ?? m.created_at).getTime();
       const expired = now - started > (m.round_seconds ?? 60) * 1000 + GRACIA_MS;
-      if (expired) await this.abandonMatch(m.id, userId, now - started < ABANDONO_CUENTA_HASTA_MS);
+      if (expired) await this.abandonMatch(m.id, userId, now - started < ABANDONO_CUENTA_HASTA_MS, m.ai_difficulty);
     }
   }
 
-  private async abandonMatch(matchId: string, userId: string, countsAsLoss: boolean) {
+  private async abandonMatch(matchId: string, userId: string, countsAsLoss: boolean, difficulty: string | null) {
     await this.prisma.$transaction(async (tx) => {
       // Sólo si sigue "en juego": si justo se está terminando, no la tocamos (no se cuenta dos veces)
       const claimed = await tx.matches.updateMany({
@@ -262,7 +275,12 @@ export class SoloMatchesService {
       });
       if (claimed.count === 0) return;
       await tx.rounds.updateMany({ where: { match_id: matchId }, data: { status: 'finished', finished_at: new Date() } });
-      if (countsAsLoss) await this.stats.recordMatchResult(userId, { won: false, points: 0 }, tx);
+      if (!countsAsLoss) return;
+      await this.stats.recordMatchResult(userId, { won: false, points: 0 }, tx);
+      // Abandonar también cuenta como derrota para el ELO
+      await this.stats.rateVsMachine(tx, matchId, {
+        userId, points: 0, won: false, abandoned: true, outcome: 'loss', difficulty: difficulty ?? 'medio',
+      });
     });
   }
 }
