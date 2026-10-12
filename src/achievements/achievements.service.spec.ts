@@ -16,9 +16,11 @@ const ctx = (over: Partial<AchievementContext> = {}): AchievementContext => ({
 const ganados = (c: AchievementContext) => ACHIEVEMENTS.filter((a) => a.isUnlocked(c)).map((a) => a.id);
 
 describe('definición de logros', () => {
-  it('hay entre 8 y 12 logros, con ids únicos y textos en español', () => {
-    expect(ACHIEVEMENTS.length).toBeGreaterThanOrEqual(8);
-    expect(ACHIEVEMENTS.length).toBeLessThanOrEqual(12);
+  it('hay 12 logros generales/de Tutti Frutti y de 2 a 3 por cada juego nuevo, con ids únicos y textos en español', () => {
+    expect(ACHIEVEMENTS.filter((a) => !a.game || a.game === 'tutti_frutti')).toHaveLength(12);
+    const porJuego = new Map<string, number>();
+    for (const a of ACHIEVEMENTS) if (a.game && a.game !== 'tutti_frutti') porJuego.set(a.game, (porJuego.get(a.game) ?? 0) + 1);
+    for (const n of porJuego.values()) expect(n >= 2 && n <= 3).toBe(true);
     expect(new Set(ACHIEVEMENTS.map((a) => a.id)).size).toBe(ACHIEVEMENTS.length);
     for (const a of ACHIEVEMENTS) {
       expect(a.id.length).toBeLessThanOrEqual(40); // largo de la columna en la base

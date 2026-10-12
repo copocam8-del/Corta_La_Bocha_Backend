@@ -111,6 +111,28 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'tutti_frutti',
     isUnlocked: (c) => c.mode === 'multiplayer' && c.won,
   },
+  // ── Ahorcado "Que no muera la redonda" ──
+  {
+    id: 'redonda_intacta',
+    name: 'La redonda intacta',
+    description: 'Ganá un ahorcado sin ningún error.',
+    game: 'ahorcado',
+    isUnlocked: (c) => c.won && c.extra?.errores === 0,
+  },
+  {
+    id: 'ahorcado_crack',
+    name: 'Crack del ahorcado',
+    description: 'Ganá un ahorcado en dificultad Difícil.',
+    game: 'ahorcado',
+    isUnlocked: (c) => c.won && c.extra?.dificultad === 'dificil',
+  },
+  {
+    id: 'ahorcado_diez',
+    name: 'Inflador oficial',
+    description: 'Ganá 10 partidas de ahorcado.',
+    game: 'ahorcado',
+    isUnlocked: (c) => (c.gameMatchesWon ?? 0) >= 10,
+  },
 ];
 
 export const ACHIEVEMENT_IDS = ACHIEVEMENTS.map((a) => a.id);

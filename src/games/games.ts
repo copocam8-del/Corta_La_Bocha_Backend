@@ -30,7 +30,7 @@ export const GAMES: GameInfo[] = [
     id: 'ahorcado',
     name: 'Que no muera la redonda',
     description: 'Ahorcado futbolero: adiviná el nombre antes de que se desinfle la pelota.',
-    available: false,
+    available: true,
     path: '/ahorcado',
     hasElo: false,
   },

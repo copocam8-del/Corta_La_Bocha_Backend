@@ -8,6 +8,7 @@ import { RoomsModule } from './rooms/rooms.module';
 import { SoloMatchesModule } from './solo-matches/solo-matches.module';
 import { CategoriesModule } from './categories/categories.module';
 import { GamesModule } from './games/games.module';
+import { AhorcadoModule } from './ahorcado/ahorcado.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { GamesModule } from './games/games.module';
     SoloMatchesModule,
     CategoriesModule,
     GamesModule,
+    AhorcadoModule,
   ],
 })
 export class AppModule {} 
