@@ -67,14 +67,14 @@ describe('UsersController', () => {
 
   it('GET /users/me/ranking usa el usuario del token', async () => {
     await controller.getMyRanking({ user: { userId: 'u1' } });
-    expect(statsService.getUserRanking).toHaveBeenCalledWith('u1', 'global');
+    expect(statsService.getUserRanking).toHaveBeenCalledWith('u1', 'global', undefined);
     await controller.getMyRanking({ user: { userId: 'u1' } }, 'semanal');
-    expect(statsService.getUserRanking).toHaveBeenLastCalledWith('u1', 'semanal');
+    expect(statsService.getUserRanking).toHaveBeenLastCalledWith('u1', 'semanal', undefined);
   });
 
   it('GET /users/ranking acepta global, semanal, mensual y elo; otro período da 400', async () => {
     await controller.getRanking('elo');
-    expect(statsService.getLeaderboard).toHaveBeenCalledWith('elo', 50);
+    expect(statsService.getLeaderboard).toHaveBeenCalledWith('elo', 50, undefined);
     expect(() => controller.getRanking('anual')).toThrow('Período inválido');
   });
 

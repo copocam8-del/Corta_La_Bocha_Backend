@@ -31,6 +31,7 @@ model users {
   solo_matches matches[]
   achievements user_achievements[]
   results      match_results[]
+  game_stats   game_stats[]
 }
 
 model profiles {
@@ -142,6 +143,11 @@ model matches {
   status        String    @default("in_progress") @db.VarChar(20)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
   finished_at   DateTime?
+  // Qué juego es (tutti_frutti, ahorcado, trivia, …: ver src/games/games.ts)
+  game          String    @default("tutti_frutti") @db.VarChar(30)
+  // Estado del juego que sólo conoce el servidor (palabra del ahorcado, respuestas de la trivia…).
+  // NUNCA se manda entero al navegador.
+  state         Json?
 
   room   rooms?   @relation(fields: [room_id], references: [id], onDelete: SetNull)
   user   users?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
@@ -149,6 +155,26 @@ model matches {
   results match_results[]
 
   @@index([user_id])
+  @@index([user_id, game, status])
+}
+
+// Estadísticas de cada usuario en cada juego. Los totales generales siguen en profiles.
+model game_stats {
+  id             String   @id @default(uuid()) @db.Uuid
+  user_id        String   @db.Uuid
+  game           String   @db.VarChar(30)
+  matches_played Int      @default(0)
+  matches_won    Int      @default(0)
+  total_points   Int      @default(0)
+  best_score     Int      @default(0)
+  current_streak Int      @default(0)
+  best_streak    Int      @default(0)
+  updated_at     DateTime @default(now()) @db.Timestamp(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, game])
+  @@index([game, total_points])
 }
 
 model rounds {

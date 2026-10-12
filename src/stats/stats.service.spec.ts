@@ -7,6 +7,7 @@ describe('StatsService', () => {
   let service: StatsService;
   const prisma = {
     profiles: { upsert: jest.fn(), update: jest.fn(), findUnique: jest.fn(), count: jest.fn(), findMany: jest.fn() },
+    game_stats: { upsert: jest.fn(), update: jest.fn(), findMany: jest.fn() },
     $transaction: jest.fn((fn: (tx: unknown) => unknown) => fn(prisma)),
   };
 
@@ -16,6 +17,25 @@ describe('StatsService', () => {
       providers: [StatsService, { provide: PrismaService, useValue: prisma }],
     }).compile();
     service = module.get(StatsService);
+    prisma.game_stats.upsert.mockResolvedValue({ id: 'g1', current_streak: 1, best_streak: 1, best_score: 15 });
+  });
+
+  it('también suma en las estadísticas del juego (por defecto Tutti Frutti)', async () => {
+    prisma.profiles.upsert.mockResolvedValue({ current_streak: 0, best_streak: 0 });
+    await service.recordMatchResult('u1', { won: true, points: 30 });
+    expect(prisma.game_stats.upsert.mock.calls[0][0].where).toEqual({ user_id_game: { user_id: 'u1', game: 'tutti_frutti' } });
+    expect(prisma.game_stats.update.mock.calls[0][0].data).toMatchObject({
+      matches_played: { increment: 1 },
+      matches_won: { increment: 1 },
+      total_points: { increment: 30 },
+      best_score: 30,
+      current_streak: 2,
+      best_streak: 2,
+    });
+
+    await service.recordMatchResult('u1', { won: false, points: 5, game: 'ahorcado' });
+    expect(prisma.game_stats.upsert.mock.calls[1][0].where).toEqual({ user_id_game: { user_id: 'u1', game: 'ahorcado' } });
+    expect(prisma.game_stats.update.mock.calls[1][0].data).toMatchObject({ current_streak: 0, best_score: 15 });
   });
 
   const perfil = (current_streak: number, best_streak: number) => ({ current_streak, best_streak });

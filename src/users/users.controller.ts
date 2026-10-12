@@ -19,6 +19,7 @@ import { AchievementsService } from '../achievements/achievements.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { authValidationPipe } from '../auth/auth-validation.pipe'
 import { PERIODS, type Period } from '../stats/periods'
+import { isGameId, type GameId } from '../games/games'
 
 function parsePeriod(period?: string): Period {
   if (!period) return 'global'
@@ -26,6 +27,12 @@ function parsePeriod(period?: string): Period {
     throw new BadRequestException('Período inválido (global, semanal, mensual o elo)')
   }
   return period as Period
+}
+
+function parseGame(game?: string): GameId | undefined {
+  if (!game) return undefined
+  if (!isGameId(game)) throw new BadRequestException('Juego inválido')
+  return game
 }
 
 @UseGuards(AuthGuard('jwt'))
@@ -44,9 +51,16 @@ export class UsersController {
   }
 
   // Posición del usuario logueado (aunque no esté en el top). ?period=global|semanal|mensual|elo
+  // y opcional ?game=<juego> (ranking de ese juego)
   @Get('me/ranking')
-  getMyRanking(@Request() req, @Query('period') period?: string) {
-    return this.statsService.getUserRanking(req.user.userId, parsePeriod(period))
+  getMyRanking(@Request() req, @Query('period') period?: string, @Query('game') game?: string) {
+    return this.statsService.getUserRanking(req.user.userId, parsePeriod(period), parseGame(game))
+  }
+
+  // Estadísticas del usuario en cada juego
+  @Get('me/games')
+  getMyGames(@Request() req) {
+    return this.statsService.getGameStats(req.user.userId)
   }
 
   // Todos los logros, con los desbloqueados por el usuario marcados
@@ -64,8 +78,8 @@ export class UsersController {
   // Ranking: los 50 mejores (sólo datos públicos). Va antes de ':id' para que no lo tape.
   // ?period=global (puntos totales, por defecto) | semanal | mensual (partidas del período) | elo
   @Get('ranking')
-  getRanking(@Query('period') period?: string) {
-    return this.statsService.getLeaderboard(parsePeriod(period), 50)
+  getRanking(@Query('period') period?: string, @Query('game') game?: string) {
+    return this.statsService.getLeaderboard(parsePeriod(period), 50, parseGame(game))
   }
 
   // Listado público: sin email, fecha de nacimiento ni nombre real

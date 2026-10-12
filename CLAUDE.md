@@ -200,10 +200,29 @@ prisma/
 - Cola pública (`matchmaking.ts`): por temática y tamaño (`pocos` 2–4, `muchos` 5–8); con el mínimo espera 10 s por
   más y arma la sala (3 rondas de 60 s), que arranca sola cuando entran todos (o a los 15 s con ≥2).
 
+## Plataforma de juegos
+
+- Catálogo en `src/games/games.ts` (`GET /games`, público): `tutti_frutti`, `ahorcado`, `trivia`, `trivia_diaria`,
+  `sopa_de_letras`, `memotest`. **Nunca cambies el id de un juego** (queda en la base). `available: false` = "Próximamente".
+- `matches.game` dice de qué juego es cada partida y `matches.state` (JSON) guarda el estado que sólo conoce el
+  servidor (palabra, respuestas correctas…). **Nunca mandes `state` entero al navegador.**
+- `game_stats`: estadísticas por usuario y juego (partidas, ganadas, puntos, mejor puntaje, rachas). Los totales
+  generales siguen en `profiles`. `StatsService.recordMatchResult({ won, points, game })` actualiza los dos.
+- Para un juego nuevo usá `GameResultsService` (`src/games/game-results.service.ts`): `createMatch` (con el estado
+  secreto), `loadActive` (404 si no es tuyo, 409 si terminó), `saveState`, `finish` (una sola vez, en transacción:
+  estadísticas generales y del juego, `match_results` para las ligas y logros) y `closeAbandoned` (las que quedaron
+  sin terminar cuentan como perdidas con 0 puntos). El resultado y los puntos los calcula el juego en el servidor.
+- Sólo Tutti Frutti mueve el ELO (`hasElo`); los demás juegos cuentan para las ligas y el ranking.
+- Ranking por juego: `GET /users/ranking?game=<id>&period=…` y `GET /users/me/ranking?game=…`. `GET /users/me/games`
+  devuelve las estadísticas por juego.
+- Migración `20261012130000_plataforma_juegos` (sin aplicar): copia los totales de cada perfil a `game_stats` como
+  Tutti Frutti (hasta ahora era el único juego).
+
 ## Logros
 
-- Definiciones en `src/achievements/achievements.definitions.ts` (12 logros, condición = función sobre las
-  estadísticas y la partida). En la base (`user_achievements`) sólo se guarda cuál y cuándo.
+- Definiciones en `src/achievements/achievements.definitions.ts` (condición = función sobre las estadísticas y la
+  partida). Un logro con `game` sólo se revisa con partidas de ese juego; sin `game` es general. El contexto trae
+  las estadísticas del juego (`gameMatchesPlayed`, …) y datos propios de la partida en `extra`. En la base (`user_achievements`) sólo se guarda cuál y cuándo.
   **Nunca cambies el id de un logro existente.**
 - Se otorgan al terminar una partida (solo o multijugador), dentro de la misma transacción que las
   estadísticas (`AchievementsService.unlockFor`). `GET /users/me/achievements` los lista todos.

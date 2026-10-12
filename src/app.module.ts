@@ -7,6 +7,7 @@ import { TuttiFruttiModule } from './tutti-frutti/tutti-frutti.module';
 import { RoomsModule } from './rooms/rooms.module';
 import { SoloMatchesModule } from './solo-matches/solo-matches.module';
 import { CategoriesModule } from './categories/categories.module';
+import { GamesModule } from './games/games.module';
 
 @Module({
   imports: [
@@ -18,6 +19,7 @@ import { CategoriesModule } from './categories/categories.module';
     RoomsModule,
     SoloMatchesModule,
     CategoriesModule,
+    GamesModule,
   ],
 })
 export class AppModule {} 

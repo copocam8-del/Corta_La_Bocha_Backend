@@ -3,11 +3,14 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { eloMultiplayer, eloVsMachine } from './elo';
 import { periodStart, type Period } from './periods';
+import type { GameId } from '../games/games';
 
 export interface MatchResult {
   won: boolean;
-  // Puntos a sumar al total del perfil
+  // Puntos a sumar al total del perfil (y del juego)
   points: number;
+  // De qué juego es la partida (por defecto Tutti Frutti)
+  game?: GameId;
 }
 
 // Resultado de un jugador en una partida, para el ELO y las ligas
@@ -34,17 +37,40 @@ export class StatsService {
 
       // Racha = victorias seguidas. Una derrota o un empate la corta.
       const currentStreak = result.won ? profile.current_streak + 1 : 0;
+      const points = Math.max(0, result.points);
 
-      return db.profiles.update({
+      const updated = await db.profiles.update({
         where: { user_id: userId },
         data: {
           matches_played: { increment: 1 },
           matches_won: { increment: result.won ? 1 : 0 },
-          total_points: { increment: Math.max(0, result.points) },
+          total_points: { increment: points },
           current_streak: currentStreak,
           best_streak: Math.max(profile.best_streak, currentStreak),
         },
       });
+
+      // Estadísticas del juego (las mismas cuentas, sólo de ese juego)
+      const game = result.game ?? 'tutti_frutti';
+      const gs = await db.game_stats.upsert({
+        where: { user_id_game: { user_id: userId, game } },
+        update: {},
+        create: { user_id: userId, game },
+      });
+      const gameStreak = result.won ? gs.current_streak + 1 : 0;
+      const game_stats = await db.game_stats.update({
+        where: { id: gs.id },
+        data: {
+          matches_played: { increment: 1 },
+          matches_won: { increment: result.won ? 1 : 0 },
+          total_points: { increment: points },
+          best_score: Math.max(gs.best_score, points),
+          current_streak: gameStreak,
+          best_streak: Math.max(gs.best_streak, gameStreak),
+          updated_at: new Date(),
+        },
+      });
+      return { ...updated, game_stats };
     };
 
     return tx ? run(tx) : this.prisma.$transaction(run);
@@ -81,6 +107,44 @@ export class StatsService {
     return after;
   }
 
+  // Juegos sin rival (ahorcado, trivia…): no mueven el ELO, pero la partida cuenta para las ligas
+  async logResult(
+    tx: Prisma.TransactionClient,
+    matchId: string,
+    r: RatedResult & { game: GameId; mode?: string },
+  ) {
+    const profile = await tx.profiles.upsert({ where: { user_id: r.userId }, update: {}, create: { user_id: r.userId } });
+    await tx.match_results.createMany({
+      data: [{
+        user_id: r.userId,
+        match_id: matchId,
+        game: r.game,
+        mode: r.mode ?? 'solo',
+        points: Math.max(0, r.points),
+        won: r.won,
+        abandoned: r.abandoned,
+        elo_before: profile.elo,
+        elo_after: profile.elo,
+        created_at: new Date(),
+      }],
+      skipDuplicates: true,
+    });
+  }
+
+  // Estadísticas del usuario en cada juego
+  async getGameStats(userId: string) {
+    const rows = await this.prisma.game_stats.findMany({ where: { user_id: userId } });
+    return rows.map((g) => ({
+      game: g.game,
+      matchesPlayed: g.matches_played,
+      matchesWon: g.matches_won,
+      totalPoints: g.total_points,
+      bestScore: g.best_score,
+      currentStreak: g.current_streak,
+      bestStreak: g.best_streak,
+    }));
+  }
+
   private async saveRated(
     tx: Prisma.TransactionClient,
     matchId: string,
@@ -111,15 +175,16 @@ export class StatsService {
   // ── Ranking ───────────────────────────────────────────────────────────────────────────────
 
   // Tabla de posiciones: global (puntos totales), semanal/mensual (partidas del período) o ELO.
-  // Empatados comparten posición. Sólo datos públicos.
-  async getLeaderboard(period: Period = 'global', limit = 50) {
-    const rows = await this.rows(period);
+  // Con "game", sólo las partidas de ese juego (el ELO es general). Empatados comparten posición.
+  // Sólo datos públicos.
+  async getLeaderboard(period: Period = 'global', limit = 50, game?: GameId) {
+    const rows = await this.rows(period, game);
     return withPositions(rows).slice(0, limit);
   }
 
   // Posición del usuario aunque no esté en el top
-  async getUserRanking(userId: string, period: Period = 'global') {
-    const rows = withPositions(await this.rows(period));
+  async getUserRanking(userId: string, period: Period = 'global', game?: GameId) {
+    const rows = withPositions(await this.rows(period, game));
     const mine = rows.find((r) => r.userId === userId);
     const profile = await this.prisma.profiles.findUnique({
       where: { user_id: userId },
@@ -128,11 +193,12 @@ export class StatsService {
     const start = periodStart(period);
     return {
       period,
+      game: game ?? null,
       from: start?.toISOString() ?? null,
       position: mine?.position ?? null,
       totalPlayers: Math.max(rows.length, 1),
-      // En global se mantiene igual que antes: puntos totales del perfil
-      totalPoints: period === 'global' ? (profile?.total_points ?? 0) : (mine?.totalPoints ?? 0),
+      // En global (sin juego) se mantiene igual que antes: puntos totales del perfil
+      totalPoints: period === 'global' && !game ? (profile?.total_points ?? 0) : (mine?.totalPoints ?? 0),
       matchesPlayed: mine?.matchesPlayed ?? 0,
       matchesWon: mine?.matchesWon ?? 0,
       elo: profile?.elo ?? 1000,
@@ -145,8 +211,33 @@ export class StatsService {
     return this.getLeaderboard('global', limit);
   }
 
-  private async rows(period: Period): Promise<LeaderRow[]> {
+  private async rows(period: Period, game?: GameId): Promise<LeaderRow[]> {
     const userSelect = { id: true, username: true, country: true } as const;
+    if (period === 'elo') game = undefined; // el ELO es uno solo
+
+    // Global de un juego: sus estadísticas
+    if (period === 'global' && game) {
+      const stats = await this.prisma.game_stats.findMany({
+        where: { game, matches_played: { gt: 0 } },
+        orderBy: [{ total_points: 'desc' }, { matches_won: 'desc' }],
+        select: {
+          total_points: true, matches_played: true, matches_won: true, best_streak: true,
+          user: { select: { ...userSelect, profile: { select: { avatar_id: true, elo: true } } } },
+        },
+      });
+      return stats.map((s) => ({
+        userId: s.user.id,
+        username: s.user.username,
+        country: s.user.country,
+        avatarId: s.user.profile?.avatar_id ?? null,
+        totalPoints: s.total_points,
+        matchesPlayed: s.matches_played,
+        matchesWon: s.matches_won,
+        bestStreak: s.best_streak,
+        elo: s.user.profile?.elo ?? 1000,
+        score: s.total_points,
+      }));
+    }
 
     if (period === 'global' || period === 'elo') {
       const profiles = await this.prisma.profiles.findMany({
@@ -173,16 +264,17 @@ export class StatsService {
 
     // Semanal / mensual: se suman las partidas del período
     const since = periodStart(period)!;
+    const where = { created_at: { gte: since }, ...(game ? { game } : {}) };
     const [totals, wins] = await Promise.all([
       this.prisma.match_results.groupBy({
         by: ['user_id'],
-        where: { created_at: { gte: since } },
+        where,
         _sum: { points: true },
         _count: { _all: true },
       }),
       this.prisma.match_results.groupBy({
         by: ['user_id'],
-        where: { created_at: { gte: since }, won: true },
+        where: { ...where, won: true },
         _count: { _all: true },
       }),
     ]);
