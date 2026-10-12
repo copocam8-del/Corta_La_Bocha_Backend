@@ -8,6 +8,8 @@ import { GoogleAuthService } from './google-auth.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './jwt.strategy';
 import { getJwtConfig } from './jwt.config';
+import { PasswordResetService } from './password-reset.service';
+import { MailService } from '../mail/mail.service';
 
 @Module({
   imports: [
@@ -29,6 +31,6 @@ import { getJwtConfig } from './jwt.config';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, GoogleAuthService, JwtStrategy],
+  providers: [AuthService, GoogleAuthService, PasswordResetService, MailService, JwtStrategy],
 })
 export class AuthModule {}

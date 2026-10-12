@@ -30,6 +30,10 @@ model users {
   votes        votes[]
   solo_matches matches[]
   achievements user_achievements[]
+  results      match_results[]
+  game_stats   game_stats[]
+  daily        daily_challenges[]
+  password_resets password_resets[]
 }
 
 model profiles {
@@ -51,7 +55,34 @@ model profiles {
   best_streak     Int @default(0)
   current_streak  Int @default(0)
 
+  // ELO (arranca en 1000). elo_games = partidas que lo movieron (para mostrar "sin ranking" si es 0)
+  elo       Int @default(1000)
+  elo_games Int @default(0)
+
   user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+}
+
+// Resultado de cada jugador en cada partida que contó para estadísticas. Con esto se arman las
+// tablas semanal y mensual (sumando las partidas del período) y el historial de ELO.
+model match_results {
+  id         String   @id @default(uuid()) @db.Uuid
+  user_id    String   @db.Uuid
+  match_id   String   @db.Uuid
+  game       String   @default("tutti_frutti") @db.VarChar(30)
+  mode       String   @db.VarChar(20)
+  points     Int      @default(0)
+  won        Boolean  @default(false)
+  abandoned  Boolean  @default(false)
+  elo_before Int
+  elo_after  Int
+  created_at DateTime @default(now()) @db.Timestamp(6)
+
+  user  users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  match matches @relation(fields: [match_id], references: [id], onDelete: Cascade)
+
+  @@unique([match_id, user_id])
+  @@index([created_at])
+  @@index([user_id, created_at])
 }
 
 // Logros desbloqueados. Las definiciones (nombre, descripción, condición) están en
@@ -114,12 +145,79 @@ model matches {
   status        String    @default("in_progress") @db.VarChar(20)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
   finished_at   DateTime?
+  // Qué juego es (tutti_frutti, ahorcado, trivia, …: ver src/games/games.ts)
+  game          String    @default("tutti_frutti") @db.VarChar(30)
+  // Estado del juego que sólo conoce el servidor (palabra del ahorcado, respuestas de la trivia…).
+  // NUNCA se manda entero al navegador.
+  state         Json?
 
   room   rooms?   @relation(fields: [room_id], references: [id], onDelete: SetNull)
   user   users?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
-  rounds rounds[]
+  rounds  rounds[]
+  results match_results[]
+  daily   daily_challenges?
 
   @@index([user_id])
+  @@index([user_id, game, status])
+}
+
+// Pedidos de "¿Olvidaste tu contraseña?". Se guarda sólo el HASH del token (si alguien lee la
+// base, no puede usar los links). Un solo uso y vencen a la hora.
+model password_resets {
+  id         String    @id @default(uuid()) @db.Uuid
+  user_id    String    @db.Uuid
+  token_hash String    @unique @db.VarChar(64)
+  expires_at DateTime  @db.Timestamp(6)
+  used_at    DateTime? @db.Timestamp(6)
+  created_at DateTime  @default(now()) @db.Timestamp(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@index([user_id])
+}
+
+// Desafío del día (trivia diaria): una fila por usuario y día argentino ("AAAA-MM-DD").
+// El índice único (user_id, day) garantiza que se juegue una sola vez por día.
+model daily_challenges {
+  id          String    @id @default(uuid()) @db.Uuid
+  user_id     String    @db.Uuid
+  day         String    @db.VarChar(10)
+  match_id    String    @unique @db.Uuid
+  completed   Boolean   @default(false)
+  aciertos    Int       @default(0)
+  puntos      Int       @default(0)
+  ms_total    Int       @default(0)
+  // Resultado para compartir sin spoilers: una letra por pregunta (V = bien, X = mal, T = sin tiempo)
+  resultado   String    @default("") @db.VarChar(20)
+  // Días seguidos jugados hasta este (incluido)
+  racha       Int       @default(0)
+  created_at  DateTime  @default(now()) @db.Timestamp(6)
+  finished_at DateTime?
+
+  user  users   @relation(fields: [user_id], references: [id], onDelete: Cascade)
+  match matches @relation(fields: [match_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, day])
+  @@index([day, completed])
+}
+
+// Estadísticas de cada usuario en cada juego. Los totales generales siguen en profiles.
+model game_stats {
+  id             String   @id @default(uuid()) @db.Uuid
+  user_id        String   @db.Uuid
+  game           String   @db.VarChar(30)
+  matches_played Int      @default(0)
+  matches_won    Int      @default(0)
+  total_points   Int      @default(0)
+  best_score     Int      @default(0)
+  current_streak Int      @default(0)
+  best_streak    Int      @default(0)
+  updated_at     DateTime @default(now()) @db.Timestamp(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@unique([user_id, game])
+  @@index([game, total_points])
 }
 
 model rounds {

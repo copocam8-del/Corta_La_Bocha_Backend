@@ -1,4 +1,15 @@
-import { buildAiPlan, DIFICULTADES, LETRAS, outcomeOf, revealedAiAnswers, seededRandom, TEMATICAS } from './solo-quick';
+import {
+  buildAiPlan,
+  completoTodo,
+  DIFICULTADES,
+  LETRAS,
+  letrasDe,
+  MAX_CATEGORIAS_IMPOSIBLES,
+  outcomeOf,
+  revealedAiAnswers,
+  seededRandom,
+  TEMATICAS,
+} from './solo-quick';
 import { AI_ANSWER_BANK } from './ai-answer-bank';
 
 describe('reglas de la partida rápida', () => {
@@ -58,6 +69,25 @@ describe('reglas de la partida rápida', () => {
     ];
     expect(revealedAiAnswers(plan, 3000)).toEqual({ Jugador: 'Messi' });
     expect(revealedAiAnswers(plan, 60000)).toEqual({ Jugador: 'Messi', Equipo: 'Milan' });
+  });
+
+  it('cada temática sortea sólo letras con, como mucho, una categoría imposible', () => {
+    for (const [tematica, categorias] of Object.entries(TEMATICAS)) {
+      const letras = letrasDe(tematica);
+      expect({ tematica, suficientes: letras.length >= 8 }).toEqual({ tematica, suficientes: true });
+      for (const letra of letras) {
+        const imposibles = categorias.filter((c) => !AI_ANSWER_BANK[c][letra].length);
+        expect(imposibles.length).toBeLessThanOrEqual(MAX_CATEGORIAS_IMPOSIBLES);
+      }
+    }
+    // Ejemplo: en "Mundial" no hay país sede ni selección campeona con L
+    expect(letrasDe('mundial')).not.toContain('L');
+  });
+
+  it('completoTodo: todas las categorías con algo escrito', () => {
+    expect(completoTodo(['A', 'B'], { A: 'x', B: ' y ' })).toBe(true);
+    expect(completoTodo(['A', 'B'], { A: 'x', B: '   ' })).toBe(false);
+    expect(completoTodo(['A', 'B'], { A: 'x' })).toBe(false);
   });
 
   it('decide ganar, empatar o perder', () => {

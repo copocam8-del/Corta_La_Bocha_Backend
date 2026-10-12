@@ -1,6 +1,10 @@
 node_modules
 # Keep environment variables out of version control
 .env
+.env.local
+
+# Base local para programar (npm run db:local)
+.local-db/
 
 dist 
 

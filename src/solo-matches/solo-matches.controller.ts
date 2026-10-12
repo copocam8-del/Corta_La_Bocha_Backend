@@ -1,11 +1,11 @@
 import { Controller, Post, Body, Param, UseGuards, Request, ParseUUIDPipe, NotFoundException } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
 import { SoloMatchesService } from './solo-matches.service';
-import { StartSoloMatchDto } from './dto/start-solo-match.dto';
-import { SubmitSoloAnswersDto } from './dto/submit-solo-answers.dto';
 import { FinishQuickMatchDto, StartQuickMatchDto } from './dto/quick-match.dto';
 import { authValidationPipe } from '../auth/auth-validation.pipe';
 
+// Sólo existe la partida rápida. La API anterior por rondas (POST /solo-matches, .../answers,
+// .../validate) se borró: no controlaba de quién era la partida y dejaba llamar a la IA sin límite.
 @UseGuards(AuthGuard('jwt'))
 @Controller('solo-matches')
 export class SoloMatchesController {
@@ -27,23 +27,4 @@ export class SoloMatchesController {
   ) {
     return this.soloMatchesService.finishQuickMatch(req.user.userId, matchId, dto.answers);
   }
-
-  @Post()
-  start(@Body() dto: StartSoloMatchDto, @Request() req) {
-    return this.soloMatchesService.startMatch(req.user.userId, dto);
-  }
-
-  @Post(':matchId/rounds/:roundId/answers')
-  submitAnswers(
-    @Param('matchId') matchId: string,
-    @Param('roundId') roundId: string,
-    @Body() dto: SubmitSoloAnswersDto,
-  ) {
-    return this.soloMatchesService.submitAnswers(matchId, roundId, dto.answers);
-  }
-
-  @Post(':matchId/rounds/:roundId/validate')
-  validate(@Param('matchId') matchId: string, @Param('roundId') roundId: string) {
-    return this.soloMatchesService.validateRoundWithAi(matchId, roundId);
-  }
-} 
+}

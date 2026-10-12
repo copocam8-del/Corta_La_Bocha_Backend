@@ -23,7 +23,9 @@ export class AchievementsService {
     ctx: AchievementContext,
     tx: Prisma.TransactionClient,
   ): Promise<UnlockedAchievement[]> {
-    const earned = ACHIEVEMENTS.filter((a) => a.isUnlocked(ctx));
+    const game = ctx.game ?? 'tutti_frutti';
+    // Los logros de un juego sólo se revisan con partidas de ese juego
+    const earned = ACHIEVEMENTS.filter((a) => (!a.game || a.game === game) && a.isUnlocked({ ...ctx, game }));
     if (earned.length === 0) return [];
 
     const already = await tx.user_achievements.findMany({
@@ -50,10 +52,11 @@ export class AchievementsService {
     });
     const unlockedAt = new Map(unlocked.map((u) => [u.achievement_id, u.unlocked_at]));
 
-    return ACHIEVEMENTS.map(({ id, name, description }) => ({
+    return ACHIEVEMENTS.map(({ id, name, description, game }) => ({
       id,
       name,
       description,
+      game: game ?? null, // null = logro general
       unlocked: unlockedAt.has(id),
       unlockedAt: unlockedAt.get(id) ?? null,
     }));
