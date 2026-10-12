@@ -1,6 +1,6 @@
-import { ConfigService } from '@nestjs/config';
-import { AI_PROVIDERS, createAiProvider } from './ai-providers';
-import { TuttiFruttiValidatorService, UNVERIFIED_REASON } from './tutti-frutti.service';
+﻿import { ConfigService } from '@nestjs/config';
+import { AI_PROVIDERS, anthropicThinkingOff, createAiProvider, geminiThinkingConfig, isThinkingConfigRejected, MAX_OUTPUT_TOKENS, openAiReasoningEffort } from './ai-providers';
+import { AI_ATTEMPT_TIMEOUT_MS, AI_TOTAL_BUDGET_MS, TuttiFruttiValidatorService, UNVERIFIED_REASON } from './tutti-frutti.service';
 
 // ── Simulamos los SDKs de Anthropic y Google (no hay red en los tests) ───────────────────────
 const anthropicCreate = jest.fn();
@@ -16,6 +16,7 @@ jest.mock('@anthropic-ai/sdk', () => ({
 const geminiGenerate = jest.fn();
 const geminiCtor = jest.fn();
 jest.mock('@google/genai', () => ({
+  ThinkingLevel: jest.requireActual('@google/genai').ThinkingLevel,
   GoogleGenAI: jest.fn().mockImplementation((opts: unknown) => {
     geminiCtor(opts);
     return { models: { generateContent: geminiGenerate } };
@@ -133,6 +134,133 @@ describe('elección del proveedor', () => {
       anthropic: 'ANTHROPIC_API_KEY',
       openai: 'OPENAI_API_KEY',
     });
+  });
+});
+
+describe('razonamiento al mínimo (validar es una tarea simple)', () => {
+  it('Gemini 3 usa thinkingLevel LOW (gemini-3.8-flash rechaza MINIMAL); Gemini 2.x apaga el razonamiento con thinkingBudget 0', () => {
+    expect(geminiThinkingConfig('gemini-3.8-flash')).toEqual({ thinkingLevel: 'LOW' });
+    expect(geminiThinkingConfig('gemini-2.5-flash')).toEqual({ thinkingBudget: 0 });
+  });
+
+  it('Claude Haiku apaga el razonamiento; en Sonnet/Opus 5.5 (que no lo permiten) sólo baja el esfuerzo', () => {
+    expect(anthropicThinkingOff('claude-haiku-5-5')).toBe(true);
+    expect(anthropicThinkingOff('claude-sonnet-5-5')).toBe(false);
+    expect(anthropicThinkingOff('claude-opus-5-5')).toBe(false);
+  });
+
+  it('OpenAI: reasoning_effort minimal sólo en modelos de razonamiento (gpt-4o-mini no lo acepta)', () => {
+    expect(openAiReasoningEffort('gpt-4o-mini')).toBeNull();
+    expect(openAiReasoningEffort('gpt-5-mini')).toBe('minimal');
+    expect(openAiReasoningEffort('o4-mini')).toBe('minimal');
+  });
+
+  it('Gemini manda thinkingConfig bajo y limita la salida', async () => {
+    proveedores.gemini.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    await crearValidador('gemini').validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
+    const { config } = geminiGenerate.mock.calls[0][0];
+    expect(config.thinkingConfig).toEqual({ thinkingLevel: 'LOW' });
+    expect(config.maxOutputTokens).toBe(MAX_OUTPUT_TOKENS);
+  });
+
+  it('si Gemini rechaza el nivel de razonamiento (400), reintenta sin thinkingConfig y lo recuerda', async () => {
+    const rechazo = Object.assign(new Error('Thinking level MINIMAL is not supported for this model.'), { status: 400 });
+    geminiGenerate.mockRejectedValueOnce(rechazo);
+    proveedores.gemini.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    proveedores.gemini.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Nahuel Molina', reason: 'ok' }]));
+    const validador = crearValidador('gemini');
+
+    const r1 = await validador.validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
+    expect(r1.get('a')?.status).toBe('valid');
+    expect(geminiGenerate.mock.calls[0][0].config).toHaveProperty('thinkingConfig');
+    expect(geminiGenerate.mock.calls[1][0].config).not.toHaveProperty('thinkingConfig');
+
+    await validador.validateAnswers('N', [{ key: 'b', category: 'Jugador', answer: 'Nahuel Molina' }]);
+    expect(geminiGenerate).toHaveBeenCalledTimes(3);
+    expect(geminiGenerate.mock.calls[2][0].config).not.toHaveProperty('thinkingConfig');
+  });
+
+  it('otros errores 400 de Gemini no se reintentan sin thinkingConfig', () => {
+    expect(isThinkingConfigRejected(Object.assign(new Error('API key not valid'), { status: 400 }))).toBe(false);
+    expect(isThinkingConfigRejected(Object.assign(new Error('thinking overloaded'), { status: 503 }))).toBe(false);
+  });
+
+  it('Claude Haiku manda thinking disabled con esfuerzo bajo y limita la salida', async () => {
+    proveedores.anthropic.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    await crearValidador('anthropic').validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
+    const [req] = anthropicCreate.mock.calls[0];
+    expect(req.thinking).toEqual({ type: 'disabled' });
+    expect(req.output_config.effort).toBe('low');
+    expect(req.max_tokens).toBe(MAX_OUTPUT_TOKENS);
+  });
+
+  it('Claude Sonnet no manda thinking disabled (daría 400)', async () => {
+    proveedores.anthropic.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    await crearValidador('anthropic', { AI_MODEL: 'claude-sonnet-5-5' }).validateAnswers('M', [
+      { key: 'a', category: 'Jugador', answer: 'Messi' },
+    ]);
+    expect(anthropicCreate.mock.calls[0][0]).not.toHaveProperty('thinking');
+  });
+
+  it('OpenAI con gpt-4o-mini no manda reasoning_effort; con gpt-5-mini manda minimal', async () => {
+    proveedores.openai.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    proveedores.openai.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    await crearValidador('openai').validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
+    await crearValidador('openai', { AI_MODEL: 'gpt-5-mini' }).validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
+    expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty('reasoning_effort');
+    expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).reasoning_effort).toBe('minimal');
+  });
+});
+
+describe('tiempos (el frontend espera hasta 45 s)', () => {
+  afterEach(() => jest.useRealTimers());
+
+  it('cada intento tiene 12 s y la validación entera no pasa de 25 s', () => {
+    expect(AI_ATTEMPT_TIMEOUT_MS).toBe(12_000);
+    expect(AI_TOTAL_BUDGET_MS).toBe(25_000);
+    expect(AI_TOTAL_BUDGET_MS).toBeLessThan(45_000);
+  });
+
+  it('a cada intento le pasa el timeout de 12 s al proveedor', async () => {
+    proveedores.gemini.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]));
+    await crearValidador('gemini').validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
+    expect(geminiGenerate.mock.calls[0][0].config.httpOptions.timeout).toBe(12_000);
+  });
+
+  it('si la IA nunca responde: corta a los 12 s, reintenta una vez y responde "sin validar" antes de 25 s', async () => {
+    jest.useFakeTimers();
+    geminiGenerate.mockImplementation(() => new Promise(() => {})); // se cuelga: ignora su propio timeout
+    let resultado: Map<string, { status: string }> | undefined;
+    const inicio = Date.now();
+    void crearValidador('gemini')
+      .validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }])
+      .then((r) => (resultado = r));
+
+    await jest.advanceTimersByTimeAsync(11_900);
+    expect(geminiGenerate).toHaveBeenCalledTimes(1);
+    expect(resultado).toBeUndefined();
+
+    await jest.advanceTimersByTimeAsync(200); // 12,1 s: se cortó el primero y arrancó el reintento
+    expect(geminiGenerate).toHaveBeenCalledTimes(2);
+
+    await jest.advanceTimersByTimeAsync(12_000); // 24,1 s: se cortó el segundo
+    expect(resultado?.get('a')?.status).toBe('unverified');
+    expect(Date.now() - inicio).toBeLessThanOrEqual(AI_TOTAL_BUDGET_MS);
+    expect(geminiGenerate).toHaveBeenCalledTimes(2); // nunca un tercer intento
+  });
+
+  it('si la respuesta llega a tiempo en el reintento, vale', async () => {
+    jest.useFakeTimers();
+    geminiGenerate
+      .mockImplementationOnce(() => new Promise(() => {}))
+      .mockResolvedValueOnce({ text: resultadosJson([{ id: '1', isValid: true, canonical: 'Lionel Messi', reason: 'ok' }]) });
+    let resultado: Map<string, { status: string }> | undefined;
+    void crearValidador('gemini')
+      .validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }])
+      .then((r) => (resultado = r));
+
+    await jest.advanceTimersByTimeAsync(12_100);
+    expect(resultado?.get('a')?.status).toBe('valid');
   });
 });
 

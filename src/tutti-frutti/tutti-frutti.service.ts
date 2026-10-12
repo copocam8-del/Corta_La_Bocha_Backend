@@ -102,7 +102,22 @@ const RESPONSE_SCHEMA = {
 };
 
 const CACHE_MAX_ENTRIES = 5000;
-const AI_TIMEOUT_MS = 20000;
+// Tiempos (el frontend espera hasta 45 s la respuesta de /solo-matches/quick/:id/finish):
+//   cada intento contra la IA se corta a los 12 s, hay un solo reintento, y la validación entera
+//   nunca pasa de 25 s. Si no alcanza, las respuestas quedan "sin validar" y se responde igual.
+export const AI_ATTEMPT_TIMEOUT_MS = 12_000;
+export const AI_TOTAL_BUDGET_MS = 25_000;
+// Si queda menos que esto, no vale la pena reintentar (no le daría tiempo a la IA)
+const MIN_RETRY_MS = 4_000;
+
+// Corta la espera aunque el SDK del proveedor no respete su propio timeout
+function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
+  let timer: NodeJS.Timeout | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`La IA no respondió en ${Math.round(ms / 1000)} s`)), ms);
+  });
+  return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
+}
 export const UNVERIFIED_REASON = 'No se pudo validar (la IA no respondió). No suma puntos.';
 
 @Injectable()
@@ -253,9 +268,16 @@ export class TuttiFruttiValidatorService {
     items: { id: string; category: string; answer: string }[],
   ): Promise<Map<string, AiResult> | null> {
     if (!this.ai) return null;
+    const deadline = Date.now() + AI_TOTAL_BUDGET_MS;
     for (let attempt = 1; attempt <= 2; attempt++) {
+      const remaining = deadline - Date.now();
+      if (attempt > 1 && remaining < MIN_RETRY_MS) {
+        this.logger.warn('Sin tiempo para reintentar: las respuestas quedan "sin validar".');
+        break;
+      }
       try {
-        return await this.callAi(this.ai, letter, items);
+        const timeoutMs = Math.min(AI_ATTEMPT_TIMEOUT_MS, remaining);
+        return await withTimeout(this.callAi(this.ai, letter, items, timeoutMs), timeoutMs);
       } catch (e) {
         this.logger.warn(`Validación con IA falló (intento ${attempt}/2): ${(e as Error).message}`);
       }
@@ -267,6 +289,7 @@ export class TuttiFruttiValidatorService {
     ai: AiProvider,
     letter: string,
     items: { id: string; category: string; answer: string }[],
+    timeoutMs: number,
   ): Promise<Map<string, AiResult>> {
     // Las respuestas viajan como DATOS (JSON), separadas de las instrucciones
     const payload = {
@@ -284,7 +307,7 @@ export class TuttiFruttiValidatorService {
       userJson: JSON.stringify(payload),
       schemaName: RESPONSE_SCHEMA_NAME,
       schema: RESPONSE_SCHEMA,
-      timeoutMs: AI_TIMEOUT_MS,
+      timeoutMs,
     });
 
     const parsed = JSON.parse(content) as { results?: AiResult[] };

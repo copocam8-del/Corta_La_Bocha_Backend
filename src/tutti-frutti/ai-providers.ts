@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { GoogleGenAI } from '@google/genai';
+import { GoogleGenAI, ThinkingLevel, type ThinkingConfig } from '@google/genai';
 
 // Proveedores de IA para validar respuestas. Todos reciben lo mismo (instrucciones de sistema,
 // las respuestas como JSON y el schema de salida) y devuelven el texto JSON de la respuesta,
@@ -15,6 +15,35 @@ export const AI_PROVIDERS: Record<AiProviderName, { keyVar: string; defaultModel
 };
 
 export const DEFAULT_AI_PROVIDER: AiProviderName = 'gemini';
+
+// Validar respuestas es una tarea simple: no hace falta que el modelo "piense". Con el razonamiento
+// al mínimo cada llamada tarda bastante menos. También limitamos el largo de la respuesta: con
+// 14 respuestas (jugador + máquina) el JSON ocupa unos 1000 tokens.
+export const MAX_OUTPUT_TOKENS = 2048;
+
+// Gemini 3 controla el razonamiento con thinkingLevel; Gemini 2.x con thinkingBudget (0 = apagado).
+// Usamos LOW y no MINIMAL: gemini-3.8-flash rechaza MINIMAL con un 400 (medido el 12/10/2026).
+export function geminiThinkingConfig(model: string): ThinkingConfig {
+  return /^gemini-2\./.test(model) ? { thinkingBudget: 0 } : { thinkingLevel: ThinkingLevel.LOW };
+}
+
+// ¿Gemini rechazó el pedido por el nivel de razonamiento? (400 que menciona "thinking")
+export function isThinkingConfigRejected(e: unknown): boolean {
+  const err = e as { status?: number; message?: string };
+  return err?.status === 400 && /thinking/i.test(err.message ?? '');
+}
+
+// Claude Haiku permite apagar el razonamiento con esfuerzo bajo. Opus 5.5 y Sonnet 5.5 rechazan
+// thinking "disabled", así que en esos sólo se baja el esfuerzo.
+export function anthropicThinkingOff(model: string): boolean {
+  return model.includes('haiku');
+}
+
+// Los modelos de razonamiento de OpenAI (serie o y gpt-5) aceptan reasoning_effort; gpt-4o-mini no
+// razona y rechaza ese parámetro.
+export function openAiReasoningEffort(model: string): 'minimal' | null {
+  return /^(o\d|gpt-5)/.test(model) ? 'minimal' : null;
+}
 
 export interface AiRequest {
   system: string; // instrucciones (nunca incluyen texto de los jugadores)
@@ -47,6 +76,7 @@ export class OpenAiProvider implements AiProvider {
       body: JSON.stringify({
         model: this.model,
         temperature: 0,
+        ...(openAiReasoningEffort(this.model) ? { reasoning_effort: openAiReasoningEffort(this.model) } : {}),
         messages: [
           { role: 'system', content: req.system },
           { role: 'user', content: req.userJson },
@@ -83,10 +113,11 @@ export class AnthropicProvider implements AiProvider {
     const response = await this.client.messages.create(
       {
         model: this.model,
-        max_tokens: 4096,
+        max_tokens: MAX_OUTPUT_TOKENS,
         system: req.system,
         messages: [{ role: 'user', content: req.userJson }],
-        // Clasificación simple: poco razonamiento alcanza. El formato obliga a devolver JSON con el schema.
+        // Clasificación simple: sin razonamiento (o el mínimo). El formato obliga a devolver JSON con el schema.
+        ...(anthropicThinkingOff(this.model) ? { thinking: { type: 'disabled' as const } } : {}),
         output_config: { effort: 'low', format: { type: 'json_schema', schema: req.schema } },
       },
       { timeout: req.timeoutMs },
@@ -112,13 +143,30 @@ export class GeminiProvider implements AiProvider {
     this.client = new GoogleGenAI({ apiKey });
   }
 
+  // Se pone en true si el modelo rechaza nuestro thinkingConfig: desde ahí se manda sin él
+  private thinkingUnsupported = false;
+
   async completeJson(req: AiRequest): Promise<string> {
+    try {
+      return await this.generate(req);
+    } catch (e) {
+      // Si el modelo no acepta el nivel de razonamiento (400), mejor validar con su razonamiento
+      // por defecto que dejar toda la partida "sin validar"
+      if (this.thinkingUnsupported || !isThinkingConfigRejected(e)) throw e;
+      this.thinkingUnsupported = true;
+      return this.generate(req);
+    }
+  }
+
+  private async generate(req: AiRequest): Promise<string> {
     const response = await this.client.models.generateContent({
       model: this.model,
       contents: req.userJson,
       config: {
         systemInstruction: req.system,
         temperature: 0,
+        ...(this.thinkingUnsupported ? {} : { thinkingConfig: geminiThinkingConfig(this.model) }),
+        maxOutputTokens: MAX_OUTPUT_TOKENS,
         responseMimeType: 'application/json',
         responseJsonSchema: req.schema,
         httpOptions: { timeout: req.timeoutMs },
