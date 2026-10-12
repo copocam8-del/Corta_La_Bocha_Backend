@@ -4,6 +4,7 @@ import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { GoogleAuthService } from './google-auth.service';
+import { PasswordResetService } from './password-reset.service';
 import { authValidationPipe } from './auth-validation.pipe';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
@@ -46,6 +47,7 @@ describe('AuthController', () => {
       providers: [
         { provide: AuthService, useValue: { register: jest.fn(), login: jest.fn() } },
         { provide: GoogleAuthService, useValue: { login: jest.fn() } },
+        { provide: PasswordResetService, useValue: { forgot: jest.fn(), reset: jest.fn() } },
       ],
     }).compile();
 

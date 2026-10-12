@@ -280,6 +280,18 @@ prisma/
 - Se otorgan al terminar una partida (solo o multijugador), dentro de la misma transacción que las
   estadísticas (`AchievementsService.unlockFor`). `GET /users/me/achievements` los lista todos.
 
+## Recuperar contraseña
+
+- `POST /auth/forgot-password {email}` → 200 con **el mismo mensaje exista o no la cuenta** (el trabajo se hace sin
+  esperar, para que tarde lo mismo). Crea un token de un solo uso que vence en 1 h; en `password_resets` se guarda
+  **sólo el hash SHA-256** (migración `20261012150000_recuperar_contrasena`). Un pedido nuevo anula los anteriores.
+  Límite: 3 por minuto por IP.
+- `POST /auth/reset-password {token, password}` → mismas reglas de contraseña que el registro; marca el token como
+  usado (una sola vez aunque lleguen dos pedidos juntos) y anula los demás. 400 si es inválido o venció. Límite 5/min.
+- Mails: `src/mail/mail.service.ts`, proveedor por variables (`MAIL_PROVIDER=resend|smtp`, ver `.env.example`).
+  Sin configurar no manda nada y lo avisa en el log; **fuera de producción el link se imprime en la consola**
+  (nunca en producción). `FRONTEND_URL` arma el link (`/restablecer-contrasena?token=…`).
+
 ## Login con Google
 
 - `POST /auth/google` con `{ credential }` (ID token de Google Identity Services). Responde igual que
@@ -300,6 +312,8 @@ prisma/
 | `CORS_ORIGIN` | opcional, orígenes separados por coma; vacío = cualquiera |
 | `GOOGLE_CLIENT_ID` | login con Google (opcional; mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend) |
 | `AI_PROVIDER` | proveedor de IA: `gemini` (por defecto), `anthropic`, `openai` o `fake` (sólo fuera de producción) |
+| `MAIL_PROVIDER`, `MAIL_FROM`, `RESEND_API_KEY`, `SMTP_*` | envío de mails (recuperar contraseña). Opcional |
+| `FRONTEND_URL` | URL del frontend para los links de los mails (default `http://localhost:5173`) |
 | `AI_FAKE_DELAY_MS` | opcional, sólo con `AI_PROVIDER=fake`: demora simulada en ms (default 300) |
 | `AI_MODEL` | opcional: cambia el modelo del proveedor |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | sólo hace falta la del proveedor elegido. Sin ella, todas las respuestas quedan "sin validar" (0 puntos) |

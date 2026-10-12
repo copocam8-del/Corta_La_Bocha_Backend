@@ -1,4 +1,6 @@
-import { Controller, Post, Get, Body, UseGuards, Request, UsePipes } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Request, UsePipes, HttpCode } from '@nestjs/common';
+import { PasswordResetService } from './password-reset.service';
+import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { AuthGuard } from '@nestjs/passport';
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
@@ -14,6 +16,7 @@ export class AuthController {
   constructor(
     private readonly authService: AuthService,
     private readonly googleAuthService: GoogleAuthService,
+    private readonly passwordReset: PasswordResetService,
   ) {}
 
   // Máximo 5 registros por minuto por IP
@@ -40,6 +43,25 @@ export class AuthController {
   @Post('google')
   google(@Body() body: GoogleLoginDto) {
     return this.googleAuthService.login(body.credential);
+  }
+
+  // "¿Olvidaste tu contraseña?". Responde siempre lo mismo, exista o no la cuenta.
+  // Máximo 3 pedidos por minuto por IP (cada uno puede mandar un mail)
+  @Throttle({ default: { ttl: 60_000, limit: 3 } })
+  @UseGuards(ThrottlerGuard)
+  @HttpCode(200)
+  @Post('forgot-password')
+  forgotPassword(@Body() body: ForgotPasswordDto) {
+    return this.passwordReset.forgot(body.email);
+  }
+
+  // Elegir la contraseña nueva con el token del mail. Máximo 5 intentos por minuto por IP.
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseGuards(ThrottlerGuard)
+  @HttpCode(200)
+  @Post('reset-password')
+  resetPassword(@Body() body: ResetPasswordDto) {
+    return this.passwordReset.reset(body.token, body.password);
   }
 
   @UseGuards(AuthGuard('jwt'))
