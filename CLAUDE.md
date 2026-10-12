@@ -35,8 +35,21 @@ npx prisma migrate deploy   # aplicar migraciones existentes (sin crear nuevas)
 npx prisma db seed          # cargar categorías (prisma/seed.ts)
 ```
 
-Varios `*.spec.ts` de otros módulos (rooms, users, categories, solo-matches) son los generados por Nest y
-fallan porque no mockean sus dependencias. Los de `auth` y `tutti-frutti` sí funcionan.
+Todos los `*.spec.ts` pasan (`npx jest`). La IA siempre va mockeada en los tests.
+
+### Probar con un servidor real (sin tocar producción)
+
+El `.env` apunta a la base de **producción**: nunca levantes el server ni corras Prisma con ese `.env` solo.
+Usá una base PostgreSQL local y pasá las variables explícitas (en PowerShell, `$env:X = ''` **borra** la
+variable y entonces se usa la del `.env`: poné siempre un valor).
+
+```powershell
+$env:DATABASE_URL = 'postgresql://usuario@localhost:5432/clb_test'   # base LOCAL
+$env:NODE_ENV = 'development'; $env:JWT_SECRET = 'local'; $env:PORT = '3100'
+$env:CORS_ORIGIN = 'http://localhost:5173'
+$env:AI_PROVIDER = 'fake'          # valida con un banco fijo: no gasta cuota de la IA
+npx prisma migrate deploy; npx prisma db seed; npm run build; node dist/src/main.js
+```
 
 ## Estructura
 
@@ -86,7 +99,19 @@ prisma/
   (`recordMatchResult`). También calcula el ranking (`getUserRanking`, `getTopPlayers`).
 - Partida solo (la que usa el frontend): `POST /solo-matches/quick` (el servidor sortea letra y arma el plan de la
   máquina) y `POST /solo-matches/quick/:matchId/finish` (valida respuestas, decide el resultado y suma
-  estadísticas una sola vez). Las reglas están en `src/solo-matches/solo-quick.ts`.
+  estadísticas una sola vez). Las reglas están en `src/solo-matches/solo-quick.ts`:
+  - **Letras por temática** (`letrasDe`): sólo se sortean letras donde, como mucho, UNA categoría no tiene
+    ninguna respuesta real posible según el banco (ej. en "Mundial" no sale la L: no hay país sede ni
+    selección campeona con L). Si completás el banco, una letra puede pasar a sortearse.
+  - **¡Basta!** sólo con todas las categorías completas: si `finish` llega antes de tiempo con alguna vacía → 400
+    y la partida sigue.
+  - **Tiempo**: `rounds.started_at` lo pone el servidor (`new Date()`), no el `now()` de la base (la columna no
+    tiene zona horaria). La máquina sólo cuenta lo que escribió hasta el `finish` (con tope en la duración).
+  - **Tarde / abandono**: si `finish` llega más de `GRACIA_MS` (60 s) después del final → 410 y cuenta como
+    perdida. Al empezar otra partida, las que quedaron "en juego" vencidas se cierran como `abandoned` y cuentan
+    como perdidas (cortan la racha); si tienen más de 24 h, se cierran sin tocar estadísticas.
+  - La API vieja por rondas (`POST /solo-matches`, `.../answers`, `.../validate`) se borró: no controlaba de quién
+    era la partida y dejaba llamar a la IA sin límite.
 - Multijugador: `POST /rooms/:code/matches/:matchId/rounds/:roundId/tally` suma puntos una sola vez por ronda y
   `POST /rooms/:code/matches/:matchId/finish` decide el ganador y suma partidas/victorias/rachas.
   **El frontend multijugador todavía es una simulación y no llama a estos endpoints.**
@@ -117,6 +142,12 @@ prisma/
    - Caché en memoria por (categoría, letra, respuesta normalizada), hasta 5000 entradas.
    - Si la IA falla, reintenta una vez (el SDK de Anthropic va con `maxRetries: 0` para no reintentar dos veces). Si vuelve a fallar → `status: 'unverified'`, 0 puntos. Una partida solo con
      respuestas sin validar se termina pero **no cuenta** para estadísticas, ranking ni logros.
+   - **Cuota agotada (429)**: no se reintenta (sería otro pedido perdido) y la IA queda en pausa lo que pida el
+     proveedor (`retryDelay`, tope 1 h); mientras tanto todo queda "sin validar" al instante.
+     **El plan gratis de Gemini da 20 pedidos por día** para `gemini-3.8-flash` (una partida = un pedido).
+   - **Modo de prueba `AI_PROVIDER=fake`** (`fake-ai-provider.ts`): valida con el banco de la máquina +
+     `FAKE_EXTRA_ANSWERS`, sin red ni clave. **En producción se rechaza** (queda todo "sin validar").
+     `AI_FAKE_DELAY_MS` simula la demora (default 300).
    - Tiempos: cada intento se corta a los 12 s y la validación entera nunca pasa de 25 s (`AI_ATTEMPT_TIMEOUT_MS`,
      `AI_TOTAL_BUDGET_MS`). El frontend espera 45 s (`FINISH_TIMEOUT_MS` en `src/api/soloMatch.ts`): si cambiás uno,
      revisá el otro.
@@ -163,7 +194,8 @@ prisma/
 | `PORT` | puerto (Render lo define solo; default 3000) |
 | `CORS_ORIGIN` | opcional, orígenes separados por coma; vacío = cualquiera |
 | `GOOGLE_CLIENT_ID` | login con Google (opcional; mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend) |
-| `AI_PROVIDER` | proveedor de IA: `gemini` (por defecto), `anthropic` u `openai` |
+| `AI_PROVIDER` | proveedor de IA: `gemini` (por defecto), `anthropic`, `openai` o `fake` (sólo fuera de producción) |
+| `AI_FAKE_DELAY_MS` | opcional, sólo con `AI_PROVIDER=fake`: demora simulada en ms (default 300) |
 | `AI_MODEL` | opcional: cambia el modelo del proveedor |
 | `GEMINI_API_KEY` / `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` | sólo hace falta la del proveedor elegido. Sin ella, todas las respuestas quedan "sin validar" (0 puntos) |
 

@@ -1,5 +1,6 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { GoogleGenAI, ThinkingLevel, type ThinkingConfig } from '@google/genai';
+import { FakeAiProvider } from './fake-ai-provider';
 
 // Proveedores de IA para validar respuestas. Todos reciben lo mismo (instrucciones de sistema,
 // las respuestas como JSON y el schema de salida) y devuelven el texto JSON de la respuesta,
@@ -54,7 +55,7 @@ export interface AiRequest {
 }
 
 export interface AiProvider {
-  readonly name: AiProviderName;
+  readonly name: AiProviderName | 'fake';
   readonly model: string;
   // Devuelve el JSON (como texto) que generó el modelo. Tira error si algo salió mal.
   completeJson(req: AiRequest): Promise<string>;
@@ -182,6 +183,8 @@ export interface ProviderConfig {
   provider?: string; // AI_PROVIDER
   model?: string; // AI_MODEL
   keys: Partial<Record<string, string>>; // GEMINI_API_KEY, ANTHROPIC_API_KEY, OPENAI_API_KEY
+  nodeEnv?: string; // NODE_ENV: con "production" no se permite AI_PROVIDER=fake
+  fakeDelayMs?: number; // AI_FAKE_DELAY_MS: demora simulada del modo de prueba
 }
 
 export type ProviderResult =
@@ -192,6 +195,14 @@ export type ProviderResult =
 // error: el validador sigue funcionando y deja las respuestas "sin validar".
 export function createAiProvider(config: ProviderConfig): ProviderResult {
   const requested = (config.provider || DEFAULT_AI_PROVIDER).trim().toLowerCase();
+  // Modo de prueba (banco fijo, sin red): nunca en producción, ahí las respuestas tienen que
+  // validarse de verdad
+  if (requested === 'fake') {
+    if (config.nodeEnv === 'production') {
+      return { ok: false, name: DEFAULT_AI_PROVIDER, model: 'banco-fijo', problem: 'AI_PROVIDER="fake" no se permite en producción' };
+    }
+    return { ok: true, provider: new FakeAiProvider(config.fakeDelayMs) };
+  }
   if (!(requested in AI_PROVIDERS)) {
     return {
       ok: false,

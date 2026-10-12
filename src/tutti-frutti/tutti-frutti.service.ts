@@ -120,6 +120,24 @@ function withTimeout<T>(promise: Promise<T>, ms: number): Promise<T> {
 }
 export const UNVERIFIED_REASON = 'No se pudo validar (la IA no respondió). No suma puntos.';
 
+// Cuota agotada (429): reintentar sólo gasta otro pedido que va a fallar. Se pausa la IA el tiempo
+// que pida el proveedor (con tope) y mientras tanto las respuestas quedan "sin validar" al toque.
+// Ojo: el plan gratis de Gemini permite 20 pedidos POR DÍA (una partida = un pedido).
+export const QUOTA_PAUSE_DEFAULT_MS = 60_000;
+export const QUOTA_PAUSE_MAX_MS = 60 * 60_000;
+
+export function isQuotaError(e: unknown): boolean {
+  const err = e as { status?: number; message?: string };
+  return err?.status === 429 || /\b429\b|RESOURCE_EXHAUSTED|quota/i.test(err?.message ?? '');
+}
+
+// Cuánto esperar según el error ("retryDelay":"64408s" en Gemini). Con tope en QUOTA_PAUSE_MAX_MS.
+export function quotaPauseMs(e: unknown): number {
+  const match = /"retryDelay"\s*:\s*"(\d+(?:\.\d+)?)s"/.exec((e as Error)?.message ?? '');
+  const ms = match ? Number(match[1]) * 1000 : QUOTA_PAUSE_DEFAULT_MS;
+  return Math.min(Math.max(ms, 1000), QUOTA_PAUSE_MAX_MS);
+}
+
 @Injectable()
 export class TuttiFruttiValidatorService {
   private readonly logger = new Logger(TuttiFruttiValidatorService.name);
@@ -127,6 +145,8 @@ export class TuttiFruttiValidatorService {
   private readonly ai: AiProvider | null;
   // Caché en memoria: (categoría, letra, respuesta normalizada) → resultado de la IA
   private readonly cache = new Map<string, { isValid: boolean; canonical: string; reason: string }>();
+  // Hasta cuándo no se llama a la IA porque se quedó sin cuota (429)
+  private aiPausedUntil = 0;
 
   constructor(private readonly configService: ConfigService) {
     const result = createAiProvider({
@@ -137,6 +157,8 @@ export class TuttiFruttiValidatorService {
         ANTHROPIC_API_KEY: this.configService.get<string>('ANTHROPIC_API_KEY'),
         OPENAI_API_KEY: this.configService.get<string>('OPENAI_API_KEY'),
       },
+      nodeEnv: this.configService.get<string>('NODE_ENV'),
+      fakeDelayMs: Number(this.configService.get<string>('AI_FAKE_DELAY_MS') ?? 300) || 0,
     });
     if (result.ok) {
       this.ai = result.provider;
@@ -268,6 +290,7 @@ export class TuttiFruttiValidatorService {
     items: { id: string; category: string; answer: string }[],
   ): Promise<Map<string, AiResult> | null> {
     if (!this.ai) return null;
+    if (Date.now() < this.aiPausedUntil) return null; // cuota agotada: no gastamos otro pedido
     const deadline = Date.now() + AI_TOTAL_BUDGET_MS;
     for (let attempt = 1; attempt <= 2; attempt++) {
       const remaining = deadline - Date.now();
@@ -279,6 +302,12 @@ export class TuttiFruttiValidatorService {
         const timeoutMs = Math.min(AI_ATTEMPT_TIMEOUT_MS, remaining);
         return await withTimeout(this.callAi(this.ai, letter, items, timeoutMs), timeoutMs);
       } catch (e) {
+        if (isQuotaError(e)) {
+          const pause = quotaPauseMs(e);
+          this.aiPausedUntil = Date.now() + pause;
+          this.logger.warn(`La IA no tiene más cuota (429). Se pausa ${Math.round(pause / 1000)} s; mientras tanto las respuestas quedan "sin validar".`);
+          return null;
+        }
         this.logger.warn(`Validación con IA falló (intento ${attempt}/2): ${(e as Error).message}`);
       }
     }

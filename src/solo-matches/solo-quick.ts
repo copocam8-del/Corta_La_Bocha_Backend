@@ -30,6 +30,35 @@ export const ROUND_SECONDS = [60, 120] as const;
 // Letras que se sortean (las mismas que usaba el frontend)
 export const LETRAS = 'ABCDEFLMNOPRSTV'.split('');
 
+// Una letra tiene sentido para una temática si, como mucho, UNA de sus categorías no tiene
+// ninguna respuesta real posible (ej. en "Mundial" no hay país sede ni selección campeona con L:
+// esa letra no se sortea en esa temática). El banco de la máquina dice qué es posible.
+export const MAX_CATEGORIAS_IMPOSIBLES = 1;
+
+export function letrasDe(tematica: string): string[] {
+  const categorias = TEMATICAS[tematica] ?? [];
+  return LETRAS.filter(
+    (l) => categorias.filter((c) => !(AI_ANSWER_BANK[c]?.[l]?.length)).length <= MAX_CATEGORIAS_IMPOSIBLES,
+  );
+}
+
+// "¡Basta!": como en el juego de verdad, sólo se puede cantar con todas las categorías completas.
+// Si no, alcanzaría con escribir dos respuestas en 8 segundos y cortar antes de que la máquina
+// conteste. El servidor considera que fue "¡Basta!" si la partida termina antes de este margen.
+export const BASTA_MARGEN_MS = 1500;
+
+// Cuánto después del final de la ronda se aceptan todavía las respuestas (latencia, reintentos).
+// Pasado ese tiempo la partida se da por abandonada: cuenta como perdida y no se valida.
+export const GRACIA_MS = 60_000;
+
+// Las partidas abandonadas hace más de esto se cierran sin tocar estadísticas (son viejas: de
+// antes de esta regla o de alguien que no volvió a jugar en mucho tiempo)
+export const ABANDONO_CUENTA_HASTA_MS = 24 * 60 * 60 * 1000;
+
+export function completoTodo(categorias: string[], respuestas: Record<string, string | null>): boolean {
+  return categorias.every((c) => (respuestas[c] ?? '').trim().length > 0);
+}
+
 export interface AiPlanItem {
   category: string;
   answer: string | null; // null = la máquina no sabe / se equivoca

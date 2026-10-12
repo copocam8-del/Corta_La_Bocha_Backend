@@ -1,15 +1,24 @@
-import { Injectable, NotFoundException, BadRequestException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, ConflictException, GoneException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { TuttiFruttiValidatorService } from '../tutti-frutti/tutti-frutti.service';
 import { StatsService } from '../stats/stats.service';
 import { AchievementsService } from '../achievements/achievements.service';
-import { buildAiPlan, Dificultad, LETRAS, outcomeOf, revealedAiAnswers, TEMATICAS } from './solo-quick';
+import {
+  ABANDONO_CUENTA_HASTA_MS,
+  BASTA_MARGEN_MS,
+  buildAiPlan,
+  completoTodo,
+  Dificultad,
+  GRACIA_MS,
+  letrasDe,
+  outcomeOf,
+  revealedAiAnswers,
+  TEMATICAS,
+} from './solo-quick';
 import { scoreRound, type CategoryEntry } from '../tutti-frutti/scoring';
 
 @Injectable()
 export class SoloMatchesService {
-  private readonly LETTERS = 'ABCDEFGHIJKLMNÑOPQRSTUVWXYZ'.split('');
-
   constructor(
     private prisma: PrismaService,
     private aiValidator: TuttiFruttiValidatorService,
@@ -20,8 +29,12 @@ export class SoloMatchesService {
   // ─── Partida rápida contra la máquina (la que usa el frontend) ───────────────────────────
 
   async startQuickMatch(userId: string, dto: { tematica: string; dificultad: string; tiempo: number }) {
+    // Antes de empezar otra, cerramos las que el jugador dejó tiradas (cuentan como perdidas)
+    await this.closeAbandonedMatches(userId);
+
     const categories = TEMATICAS[dto.tematica];
-    const letter = LETRAS[Math.floor(Math.random() * LETRAS.length)];
+    const letras = letrasDe(dto.tematica);
+    const letter = letras[Math.floor(Math.random() * letras.length)];
 
     const match = await this.prisma.matches.create({
       data: {
@@ -34,8 +47,10 @@ export class SoloMatchesService {
         status: 'in_progress',
       },
     });
+    // started_at con la hora de ESTE servidor (no el now() de la base): la columna no guarda zona
+    // horaria y si la base no está en UTC el tiempo de la máquina se calcularía mal
     const round = await this.prisma.rounds.create({
-      data: { match_id: match.id, round_number: 1, letter, status: 'answering' },
+      data: { match_id: match.id, round_number: 1, letter, status: 'answering', started_at: new Date() },
     });
 
     return {
@@ -63,6 +78,24 @@ export class SoloMatchesService {
     if (!match || match.user_id !== userId || match.mode !== 'vs_ai' || !round || !match.tematica) {
       throw new NotFoundException('Partida no encontrada');
     }
+    if (match.status !== 'in_progress') throw new ConflictException('Esta partida ya terminó');
+
+    const roundMs = (match.round_seconds ?? 60) * 1000;
+    const elapsedRaw = Date.now() - round.started_at.getTime();
+
+    // Respuestas que llegan mucho después del final: la partida se dio por abandonada
+    if (elapsedRaw > roundMs + GRACIA_MS) {
+      await this.abandonMatch(match.id, userId, true);
+      throw new GoneException('La partida venció: pasó demasiado tiempo desde que terminó la ronda. Cuenta como perdida.');
+    }
+
+    const categoriasDeLaPartida = TEMATICAS[match.tematica] ?? [];
+    const enviadas = Object.fromEntries(
+      categoriasDeLaPartida.map((c) => [c, answers.find((a) => a.category === c)?.answer ?? null]),
+    );
+    if (elapsedRaw < roundMs - BASTA_MARGEN_MS && !completoTodo(categoriasDeLaPartida, enviadas)) {
+      throw new BadRequestException('Para cantar ¡Basta! tenés que completar todas las categorías.');
+    }
 
     // "Reservamos" la partida para que terminarla dos veces no sume estadísticas dos veces
     const claimed = await this.prisma.matches.updateMany({
@@ -80,10 +113,7 @@ export class SoloMatchesService {
       }
 
       // La máquina tuvo el tiempo real que pasó (medido acá), con tope en la duración de la ronda
-      const elapsedMs = Math.min(
-        Date.now() - round.started_at.getTime(),
-        (match.round_seconds ?? 60) * 1000,
-      );
+      const elapsedMs = Math.min(elapsedRaw, roundMs);
       const plan = buildAiPlan(match.id, round.letter, categories, (match.ai_difficulty ?? 'medio') as Dificultad);
       const machineAnswers = revealedAiAnswers(plan, elapsedMs);
 
@@ -208,130 +238,31 @@ export class SoloMatchesService {
     }
   }
 
-  // ─── Flujo por rondas (API anterior; el frontend actual no la usa) ───────────────────────
-
-  async startMatch(
-    userId: string,
-    dto: { categoryIds: string[]; roundSeconds: number; aiDifficulty: string },
-  ) {
-    const match = await this.prisma.matches.create({
-      data: {
-        room_id: null,
-        mode: 'vs_ai',
-        ai_difficulty: dto.aiDifficulty,
-        status: 'in_progress',
-      },
+  // Partidas del usuario que quedaron "en juego" después de su tiempo (cerró la pestaña, se fue
+  // a otra página): se cierran. Las recientes cuentan como perdidas, así nadie evita una derrota
+  // (ni corta su racha) abandonando; las muy viejas se cierran sin tocar estadísticas.
+  async closeAbandonedMatches(userId: string, now = Date.now()) {
+    const open = await this.prisma.matches.findMany({
+      where: { user_id: userId, mode: 'vs_ai', status: 'in_progress' },
+      select: { id: true, round_seconds: true, created_at: true, rounds: { select: { started_at: true }, take: 1 } },
     });
-
-    const round = await this.startNewRound(match.id, 1);
-
-    return { match, round, categoryIds: dto.categoryIds, roundSeconds: dto.roundSeconds, userId };
+    for (const m of open) {
+      const started = (m.rounds[0]?.started_at ?? m.created_at).getTime();
+      const expired = now - started > (m.round_seconds ?? 60) * 1000 + GRACIA_MS;
+      if (expired) await this.abandonMatch(m.id, userId, now - started < ABANDONO_CUENTA_HASTA_MS);
+    }
   }
 
-  async startNewRound(matchId: string, roundNumber: number) {
-    const previousRounds = await this.prisma.rounds.findMany({
-      where: { match_id: matchId },
-      select: { letter: true },
-    });
-    const usedLetters = previousRounds.map((r) => r.letter);
-    const availableLetters = this.LETTERS.filter((l) => !usedLetters.includes(l));
-
-    if (availableLetters.length === 0) {
-      throw new BadRequestException('Ya se usaron todas las letras disponibles');
-    }
-
-    const letter = availableLetters[Math.floor(Math.random() * availableLetters.length)];
-
-    return this.prisma.rounds.create({
-      data: {
-        match_id: matchId,
-        round_number: roundNumber,
-        letter,
-        status: 'answering',
-      },
-    });
-  }
-
-  async submitAnswers(
-    matchId: string,
-    roundId: string,
-    answers: { categoryId: string; answerText: string | null }[],
-  ) {
-    const round = await this.prisma.rounds.findUnique({ where: { id: roundId } });
-
-    if (!round) throw new NotFoundException('Ronda no encontrada');
-    if (round.match_id !== matchId) throw new BadRequestException('La ronda no pertenece a ese match');
-    if (round.status !== 'answering') {
-      throw new BadRequestException('Esta ronda ya no acepta respuestas');
-    }
-
-    // En modo solo no hay room_player (es null), por eso usamos category_id como única referencia
-    // junto al round_id. Borramos respuestas previas de esa ronda antes de insertar (simplifica el upsert).
-    await this.prisma.answers.deleteMany({
-      where: { round_id: roundId, room_player_id: null },
-    });
-
-    const created = await this.prisma.$transaction(
-      answers.map((a) =>
-        this.prisma.answers.create({
-          data: {
-            round_id: roundId,
-            room_player_id: null,
-            category_id: a.categoryId,
-            answer_text: a.answerText,
-            validated_by: 'pending',
-          },
-        }),
-      ),
-    );
-
-    return { answersSubmitted: created.length };
-  }
-
-  async validateRoundWithAi(matchId: string, roundId: string) {
-    const round = await this.prisma.rounds.findUnique({
-      where: { id: roundId },
-      include: {
-        answers: { include: { category: true } },
-      },
-    });
-
-    if (!round) throw new NotFoundException('Ronda no encontrada');
-    if (round.match_id !== matchId) throw new BadRequestException('La ronda no pertenece a ese match');
-    if (round.status !== 'answering') {
-      throw new BadRequestException('Esta ronda ya fue validada');
-    }
-
-    const aiResult = await this.aiValidator.validateRound({
-      roundLetter: round.letter,
-      answers: round.answers.map((a) => ({ category: a.category.name, answer: a.answer_text })),
-    });
-
-    // Mapeamos el resultado de la IA de vuelta a cada `answer` por categoría
-    const updates = round.answers.map((a) => {
-      const aiMatch = aiResult.results.find((r) => r.category === a.category.name);
-      const unverified = !aiMatch || aiMatch.status === 'unverified';
-      const points = aiMatch?.points ?? 0;
-
-      return this.prisma.answers.update({
-        where: { id: a.id },
-        data: {
-          is_valid: unverified ? null : aiMatch.isValid,
-          points,
-          validated_by: unverified ? 'unverified' : 'ai',
-        },
+  private async abandonMatch(matchId: string, userId: string, countsAsLoss: boolean) {
+    await this.prisma.$transaction(async (tx) => {
+      // Sólo si sigue "en juego": si justo se está terminando, no la tocamos (no se cuenta dos veces)
+      const claimed = await tx.matches.updateMany({
+        where: { id: matchId, status: 'in_progress' },
+        data: { status: 'abandoned', finished_at: new Date() },
       });
+      if (claimed.count === 0) return;
+      await tx.rounds.updateMany({ where: { match_id: matchId }, data: { status: 'finished', finished_at: new Date() } });
+      if (countsAsLoss) await this.stats.recordMatchResult(userId, { won: false, points: 0 }, tx);
     });
-
-    const finalAnswers = await this.prisma.$transaction(updates);
-
-    await this.prisma.rounds.update({
-      where: { id: roundId },
-      data: { status: 'finished', finished_at: new Date() },
-    });
-
-    const totalPoints = finalAnswers.reduce((sum, a) => sum + a.points, 0);
-
-    return { answers: finalAnswers, totalPoints, aiRaw: aiResult };
   }
-} 
+}

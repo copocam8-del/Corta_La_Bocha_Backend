@@ -1,6 +1,15 @@
 ﻿import { ConfigService } from '@nestjs/config';
 import { AI_PROVIDERS, anthropicThinkingOff, createAiProvider, geminiThinkingConfig, isThinkingConfigRejected, MAX_OUTPUT_TOKENS, openAiReasoningEffort } from './ai-providers';
-import { AI_ATTEMPT_TIMEOUT_MS, AI_TOTAL_BUDGET_MS, TuttiFruttiValidatorService, UNVERIFIED_REASON } from './tutti-frutti.service';
+import {
+  AI_ATTEMPT_TIMEOUT_MS,
+  AI_TOTAL_BUDGET_MS,
+  isQuotaError,
+  QUOTA_PAUSE_DEFAULT_MS,
+  QUOTA_PAUSE_MAX_MS,
+  quotaPauseMs,
+  TuttiFruttiValidatorService,
+  UNVERIFIED_REASON,
+} from './tutti-frutti.service';
 
 // ── Simulamos los SDKs de Anthropic y Google (no hay red en los tests) ───────────────────────
 const anthropicCreate = jest.fn();
@@ -209,6 +218,47 @@ describe('razonamiento al mínimo (validar es una tarea simple)', () => {
     await crearValidador('openai', { AI_MODEL: 'gpt-5-mini' }).validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
     expect(JSON.parse(fetchMock.mock.calls[0][1].body as string)).not.toHaveProperty('reasoning_effort');
     expect(JSON.parse(fetchMock.mock.calls[1][1].body as string).reasoning_effort).toBe('minimal');
+  });
+});
+
+describe('cuota agotada (429)', () => {
+  afterEach(() => jest.useRealTimers());
+  const error429 = () =>
+    Object.assign(
+      new Error('{"error":{"code":429,"status":"RESOURCE_EXHAUSTED","details":[{"retryDelay":"90s"}]}}'),
+      { status: 429 },
+    );
+
+  it('detecta el 429 de cada proveedor y lee cuánto esperar', () => {
+    expect(isQuotaError(error429())).toBe(true);
+    expect(isQuotaError(new Error('OpenAI respondió 429: Rate limit'))).toBe(true);
+    expect(isQuotaError(Object.assign(new Error('rate_limit_error'), { status: 429 }))).toBe(true);
+    expect(isQuotaError(new Error('503 UNAVAILABLE'))).toBe(false);
+    expect(quotaPauseMs(error429())).toBe(90_000);
+    expect(quotaPauseMs(new Error('429'))).toBe(QUOTA_PAUSE_DEFAULT_MS);
+    expect(quotaPauseMs(new Error('"retryDelay":"64408s"'))).toBe(QUOTA_PAUSE_MAX_MS); // cuota diaria: tope 1 h
+  });
+
+  it('no reintenta (no gasta otro pedido) y pausa la IA hasta que pase el tiempo pedido', async () => {
+    jest.useFakeTimers();
+    const v = crearValidador('gemini');
+    geminiGenerate.mockRejectedValueOnce(error429());
+
+    const r1 = await v.validateAnswers('M', [{ key: 'a', category: 'Jugador', answer: 'Messi' }]);
+    expect(r1.get('a')?.status).toBe('unverified');
+    expect(geminiGenerate).toHaveBeenCalledTimes(1);
+
+    // Durante la pausa ni se intenta: responde "sin validar" al instante
+    const r2 = await v.validateAnswers('N', [{ key: 'b', category: 'Jugador', answer: 'Neymar' }]);
+    expect(r2.get('b')?.status).toBe('unverified');
+    expect(geminiGenerate).toHaveBeenCalledTimes(1);
+
+    // Pasado el tiempo, vuelve a probar
+    jest.setSystemTime(Date.now() + 91_000);
+    proveedores.gemini.ok(resultadosJson([{ id: '1', isValid: true, canonical: 'Neymar', reason: 'ok' }]));
+    const r3 = await v.validateAnswers('N', [{ key: 'b', category: 'Jugador', answer: 'Neymar' }]);
+    expect(r3.get('b')?.status).toBe('valid');
+    expect(geminiGenerate).toHaveBeenCalledTimes(2);
   });
 });
 
