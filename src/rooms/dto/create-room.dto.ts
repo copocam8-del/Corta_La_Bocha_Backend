@@ -1,19 +1,27 @@
-import { IsIn, IsInt, IsOptional } from 'class-validator';
-import { TEMATICAS } from '../../solo-matches/solo-quick';
-import { ROUND_OPTIONS, SECONDS_OPTIONS } from '../game-engine';
+import { IsIn, IsInt, IsOptional, IsString, MaxLength } from 'class-validator';
+import { MULTI_GAMES, type MultiGameId } from '../modes/types';
 
-// Configuración inicial de una sala privada (el anfitrión la puede cambiar en el lobby)
+// Configuración inicial de una sala privada (el anfitrión la puede cambiar en el lobby). Qué
+// valores valen depende del juego: los controla el modo de cada juego (validSettings) → 400.
 export class CreateRoomDto {
-  @IsIn(Object.keys(TEMATICAS), { message: 'Temática inválida' })
+  @IsIn(MULTI_GAMES, { message: 'Juego inválido' })
+  @IsOptional()
+  game?: MultiGameId;
+
+  @MaxLength(40)
+  @IsString({ message: 'Temática inválida' })
   @IsOptional()
   tematica?: string;
 
-  @IsIn(ROUND_OPTIONS, { message: `Las rondas pueden ser ${ROUND_OPTIONS.join(', ')}` })
+  @MaxLength(20)
+  @IsString({ message: 'Dificultad inválida' })
+  @IsOptional()
+  dificultad?: string;
+
   @IsInt({ message: 'Las rondas deben ser un número entero' })
   @IsOptional()
   rounds?: number;
 
-  @IsIn(SECONDS_OPTIONS, { message: `El tiempo puede ser ${SECONDS_OPTIONS.join(', ')} segundos` })
   @IsInt({ message: 'El tiempo debe ser un número entero' })
   @IsOptional()
   seconds?: number;

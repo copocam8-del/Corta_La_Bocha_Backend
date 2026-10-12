@@ -1,119 +1,33 @@
-import { scoreRound, type AnswerStatus, type CategoryEntry } from '../tutti-frutti/scoring';
-import { LETRAS, TEMATICAS, letrasDe } from '../solo-matches/solo-quick';
-import type { AnswerCheck, AnswerToCheck } from '../tutti-frutti/tutti-frutti.service';
 import type { UnlockedAchievement } from '../achievements/achievements.service';
+import { MODES } from './modes';
+import {
+  AUTOSTART_MS, fail, GAME_GRACE_MS, HOST_GRACE_MS, IN_GAME, LOBBY_GRACE_MS, MIN_PLAYERS,
+  type GameMode, type ModeHost, type MultiGameId, type Phase, type PlayerRef, type Result, type RoomStore,
+  type Settings, type StoredPlayer, type StoredRoom, type Validator,
+} from './modes/types';
 
 // ─────────────────────────────────────────────────────────────────────────────────────────────
-// Motor del multijugador. El SERVIDOR manda en todo: sortea letra y categorías, controla el reloj
-// y el ¡Basta!, junta las respuestas, las valida (una sola llamada a la IA por ronda, como en la
-// partida contra la máquina) y puntúa con scoring.ts. Los clientes sólo muestran el estado que
-// reciben ("room:state") y mandan lo que escribe cada jugador.
+// Motor del multijugador. El SERVIDOR manda en todo. Acá está lo común a todos los juegos: salas,
+// lobby, anfitrión, entradas y salidas, reconexiones y el final de la partida (posiciones,
+// estadísticas y logros, una sola vez). Cómo se juega cada partida lo decide el modo de cada juego
+// (modes/*.mode.ts): Tutti Frutti, ahorcado, trivia, sopa de letras y memotest. Los clientes sólo
+// muestran el estado que reciben ("room:state", armado por jugador) y mandan lo que hace cada uno.
 //
 // El estado de cada sala vive en memoria (alcanza con una sola instancia en Render). En la base
-// quedan la sala, sus jugadores, la partida, las rondas y las respuestas, y al final las
-// estadísticas y logros (una sola vez por partida). Si el servidor se reinicia, las partidas en
+// quedan la sala (y de qué juego es), sus jugadores, la partida y, en Tutti Frutti, las rondas y
+// respuestas; al final, las estadísticas y logros. Si el servidor se reinicia, las partidas en
 // curso se pierden y las salas vuelven al lobby.
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
-export const MIN_PLAYERS = 2;
-export const MAX_PLAYERS = 8;
-export const ROUND_OPTIONS = [1, 3, 5];
-export const SECONDS_OPTIONS = [30, 45, 60, 90, 120];
-export const DEFAULT_SETTINGS: Settings = { tematica: 'general', rounds: 3, seconds: 60 };
-export const MAX_ANSWER_LENGTH = 150;
-
-export const COUNTDOWN_MS = 3_000; // "¡Preparados!" antes de cada ronda
-export const COLLECT_MS = 2_000; // al cortar la ronda, espera las últimas respuestas en viaje
-export const RESULTS_MS = 10_000; // resultados de la ronda antes de la siguiente
-export const LOBBY_GRACE_MS = 15_000; // en el lobby, cuánto se espera a alguien que se desconectó
-export const HOST_GRACE_MS = 10_000; // si el anfitrión se desconecta, cuánto antes de pasarlo a otro
-export const GAME_GRACE_MS = 20_000; // en partida: si quedan menos de 2 conectados, cuánto se espera
-export const AUTOSTART_MS = 15_000; // salas de la cola pública: cuánto se espera a que entren todos
-
-export type Phase = 'lobby' | 'countdown' | 'playing' | 'collecting' | 'validating' | 'results' | 'finished' | 'closed';
-const IN_GAME: Phase[] = ['countdown', 'playing', 'collecting', 'validating', 'results'];
-
-export interface Settings {
-  tematica: string;
-  rounds: number;
-  seconds: number;
-}
-
-export interface StoredPlayer {
-  userId: string;
-  username: string;
-  avatarId: string | null;
-  roomPlayerId: string;
-  joinedAt: Date;
-}
-
-export interface StoredRoom {
-  roomId: string;
-  code: string;
-  isPrivate: boolean;
-  status: string;
-  players: StoredPlayer[];
-}
-
-export interface FinalPlayerResult {
-  userId: string;
-  points: number;
-  won: boolean;
-  abandoned: boolean;
-}
-
-export interface SavedAnswer {
-  roomPlayerId: string;
-  category: string;
-  answer: string | null;
-  status: AnswerStatus;
-  points: number;
-}
-
-// Lo que el motor necesita de la base (lo implementa RoomsService con Prisma)
-export interface RoomStore {
-  createRoom(isPrivate: boolean, userIds: string[]): Promise<StoredRoom>;
-  loadRoom(code: string): Promise<StoredRoom | null>;
-  addPlayer(roomId: string, userId: string): Promise<StoredPlayer>;
-  removePlayer(roomId: string, userId: string): Promise<void>;
-  setRoomStatus(roomId: string, status: 'waiting' | 'playing' | 'closed'): Promise<void>;
-  createMatch(roomId: string, settings: Settings): Promise<string>;
-  createRound(matchId: string, roundNumber: number, letter: string): Promise<string>;
-  saveRound(roundId: string, answers: SavedAnswer[]): Promise<void>;
-  finishMatch(
-    matchId: string,
-    roomId: string,
-    results: FinalPlayerResult[],
-    countsForStats: boolean,
-  ): Promise<Record<string, UnlockedAchievement[]>>;
-}
-
-export interface Validator {
-  validateAnswers(letter: string, items: AnswerToCheck[]): Promise<Map<string, AnswerCheck>>;
-}
+export * from './modes/types';
+export {
+  DEFAULT_SETTINGS, MAX_ANSWER_LENGTH, ROUND_OPTIONS, SECONDS_OPTIONS, validSettings,
+  type CellResult, type RoundResult,
+} from './modes/tutti-frutti.mode';
 
 // Cómo el motor les habla a los jugadores (lo implementa el gateway de Socket.IO)
 export interface EngineOutput {
   sendState(userId: string, state: RoomSnapshot): void;
-}
-
-export interface CellResult {
-  userId: string;
-  username: string;
-  answer: string | null;
-  status: AnswerStatus;
-  canonical: string | null;
-  reason: string;
-  points: number;
-}
-
-export interface RoundResult {
-  number: number;
-  letter: string;
-  bastaBy: string | null; // nombre de quien cantó ¡Basta! (null si se acabó el tiempo)
-  incomplete: boolean; // la IA no pudo validar alguna respuesta (0 puntos)
-  categories: { category: string; entries: CellResult[] }[];
-  roundPoints: Record<string, number>;
 }
 
 export interface FinalResult {
@@ -125,6 +39,7 @@ export interface FinalResult {
 
 export interface RoomSnapshot {
   code: string;
+  game: MultiGameId;
   isPrivate: boolean;
   me: string;
   hostUserId: string | null;
@@ -134,6 +49,8 @@ export interface RoomSnapshot {
   maxPlayers: number;
   serverNow: number; // para que el cliente corrija la diferencia de reloj
   players: { userId: string; username: string; avatarId: string | null; connected: boolean; left: boolean; isHost: boolean; score: number }[];
+  nextAt: number | null; // cuándo empieza la próxima fase (cuenta regresiva, resultados)
+  // Tutti Frutti
   round: null | {
     number: number;
     total: number;
@@ -143,9 +60,10 @@ export interface RoomSnapshot {
     bastaBy: string | null;
     myAnswers: Record<string, string>;
   };
-  nextAt: number | null; // cuándo empieza la próxima fase (cuenta regresiva, resultados)
-  lastResult: RoundResult | null;
-  history: RoundResult[];
+  lastResult: import('./modes/tutti-frutti.mode').RoundResult | null;
+  history: import('./modes/tutti-frutti.mode').RoundResult[];
+  // Los demás juegos: lo que ve este jugador de la partida (lo arma cada modo; nunca las respuestas)
+  view: ({ kind: string } & Record<string, unknown>) | null;
   final: FinalResult | null;
   notice: string | null; // aviso para mostrar (ej. "Se fue Juan: ahora el anfitrión es Ana")
 }
@@ -159,57 +77,28 @@ interface Player {
   connected: boolean;
   left: boolean; // abandonó la partida en curso (no vuelve a entrar en ella)
   score: number;
-  answers: Record<string, string>;
-  finalSent: boolean;
   timer?: NodeJS.Timeout;
 }
 
 interface Room {
   code: string;
   roomId: string;
+  game: MultiGameId;
   isPrivate: boolean;
   hostUserId: string | null;
   players: Map<string, Player>;
   settings: Settings;
   phase: Phase;
   matchId: string | null;
-  roundNumber: number;
-  roundId: string | null;
-  letter: string | null;
-  categories: string[];
-  endsAt: number | null;
+  epoch: number; // número de partida en la sala (para ignorar relojes de una partida vieja)
+  mode: GameMode | null;
   nextAt: number | null;
-  bastaBy: string | null;
-  usedLetters: string[];
-  history: RoundResult[];
-  incomplete: boolean;
   final: (Omit<FinalResult, 'newAchievements'> & { achievements: Record<string, UnlockedAchievement[]> }) | null;
   notice: string | null;
   phaseTimer?: NodeJS.Timeout;
   lowPlayersTimer?: NodeJS.Timeout;
   autoStartTimer?: NodeJS.Timeout;
   autoStart: boolean;
-}
-
-export type Result = { ok: true; code?: string } | { ok: false; error: string };
-const fail = (error: string): Result => ({ ok: false, error });
-
-export function validSettings(s: Partial<Settings>): Settings | null {
-  const tematica = s.tematica ?? DEFAULT_SETTINGS.tematica;
-  const rounds = Number(s.rounds ?? DEFAULT_SETTINGS.rounds);
-  const seconds = Number(s.seconds ?? DEFAULT_SETTINGS.seconds);
-  if (!TEMATICAS[tematica] || !ROUND_OPTIONS.includes(rounds) || !SECONDS_OPTIONS.includes(seconds)) return null;
-  return { tematica, rounds, seconds };
-}
-
-function cleanAnswers(raw: unknown, categories: string[]): Record<string, string> {
-  const out: Record<string, string> = {};
-  if (!raw || typeof raw !== 'object') return out;
-  for (const c of categories) {
-    const v = (raw as Record<string, unknown>)[c];
-    if (typeof v === 'string') out[c] = v.slice(0, MAX_ANSWER_LENGTH);
-  }
-  return out;
 }
 
 export class GameEngine {
@@ -233,20 +122,22 @@ export class GameEngine {
 
   // ── Crear y entrar ────────────────────────────────────────────────────────────────────────
 
-  async createPrivateRoom(userId: string, settings: Partial<Settings>): Promise<Result> {
-    const s = validSettings(settings);
+  async createPrivateRoom(userId: string, settings: Partial<Settings>, game: MultiGameId = 'tutti_frutti'): Promise<Result> {
+    const def = MODES[game];
+    if (!def) return fail('Juego inválido.');
+    const s = def.validSettings(settings);
     if (!s) return fail('Configuración inválida.');
-    const stored = await this.store.createRoom(true, [userId]);
-    const room = this.fromStored(stored, s);
+    const stored = await this.store.createRoom(true, [userId], game);
+    const room = this.fromStored({ ...stored, game }, s);
     room.hostUserId = userId;
     this.rooms.set(room.code, room);
     return { ok: true, code: room.code };
   }
 
   // Sala armada por la cola pública: arranca sola cuando entran todos (o a los AUTOSTART_MS)
-  async createQueueRoom(userIds: string[], settings: Settings): Promise<string> {
-    const stored = await this.store.createRoom(false, userIds);
-    const room = this.fromStored(stored, settings);
+  async createQueueRoom(userIds: string[], settings: Settings, game: MultiGameId = 'tutti_frutti'): Promise<string> {
+    const stored = await this.store.createRoom(false, userIds, game);
+    const room = this.fromStored({ ...stored, game }, settings);
     room.hostUserId = userIds[0];
     room.autoStart = true;
     this.rooms.set(room.code, room);
@@ -261,7 +152,7 @@ export class GameEngine {
       if (!room) {
         const stored = await this.store.loadRoom(code);
         if (!stored || stored.status === 'closed') return fail('Sala no encontrada.');
-        room = this.fromStored(stored, DEFAULT_SETTINGS);
+        room = this.fromStored(stored);
         if (stored.status !== 'waiting') await this.store.setRoomStatus(room.roomId, 'waiting'); // se reinició el server
         this.rooms.set(code, room);
         // Los que figuran en la base pero no vuelven a entrar, salen del lobby después de un rato
@@ -278,6 +169,7 @@ export class GameEngine {
         existing.left = false;
         if (!room.hostUserId) room.hostUserId = existing.userId;
         this.checkPlayers(room);
+        if (IN_GAME.includes(room.phase)) room.mode?.onPlayerBack?.(existing.userId);
         if (room.autoStart) await this.autoStart(room, false);
         this.broadcast(room);
         return { ok: true, code };
@@ -285,7 +177,7 @@ export class GameEngine {
 
       if (room.phase !== 'lobby') return fail('La partida ya empezó.');
       if (!room.isPrivate) return fail('Esta sala es de la cola pública: entrá por "Partida pública".');
-      if ([...room.players.values()].filter((p) => !p.left).length >= MAX_PLAYERS) return fail('La sala está llena.');
+      if ([...room.players.values()].filter((p) => !p.left).length >= MODES[room.game].maxPlayers) return fail('La sala está llena.');
       const stored = await this.store.addPlayer(room.roomId, user.userId);
       room.players.set(user.userId, this.newPlayer(stored, true));
       if (!room.hostUserId) room.hostUserId = user.userId;
@@ -294,7 +186,7 @@ export class GameEngine {
     });
   }
 
-  // El jugador se fue a propósito (botón "Salir")
+  // El jugador se fue a propósito (botón "Volver" / "Salir"): en partida, cuenta como abandono y se avisa a los demás
   leave(code: string, userId: string): Promise<Result> {
     return this.withLock(code, async () => {
       const room = this.rooms.get(code);
@@ -307,6 +199,7 @@ export class GameEngine {
         room.notice = `${p.username} abandonó la partida.`;
         if (room.hostUserId === userId) this.passHost(room);
         this.checkPlayers(room);
+        await room.mode?.onPlayerGone?.(userId, 'left');
         this.broadcast(room);
       } else {
         await this.removePlayer(room, p);
@@ -329,6 +222,7 @@ export class GameEngine {
             if (!p.connected && room.hostUserId === userId) { this.passHost(room); this.broadcast(room); }
           }), HOST_GRACE_MS);
         }
+        await room.mode?.onPlayerGone?.(userId, 'disconnected');
       } else {
         this.scheduleLobbyRemoval(room, p);
       }
@@ -351,7 +245,7 @@ export class GameEngine {
       if (!room) return fail('Sala no encontrada.');
       if (room.hostUserId !== userId) return fail('Sólo el anfitrión puede cambiar la configuración.');
       if (room.phase !== 'lobby') return fail('La partida ya empezó.');
-      const s = validSettings({ ...room.settings, ...settings });
+      const s = MODES[room.game].validSettings({ ...room.settings, ...settings });
       if (!s) return fail('Configuración inválida.');
       room.settings = s;
       this.broadcast(room);
@@ -366,6 +260,8 @@ export class GameEngine {
       if (room.hostUserId !== userId) return fail('Sólo el anfitrión puede arrancar la partida.');
       if (room.phase !== 'lobby') return fail('La partida ya empezó.');
       if (this.connectedPlayers(room).length < MIN_PLAYERS) return fail(`Hacen falta al menos ${MIN_PLAYERS} jugadores conectados.`);
+      const problem = MODES[room.game].cannotStart?.(room.settings);
+      if (problem) return fail(problem);
       await this.startMatch(room);
       return { ok: true };
     });
@@ -381,7 +277,7 @@ export class GameEngine {
       for (const p of [...room.players.values()]) if (p.left || !p.connected) await this.removePlayer(room, p, false);
       room.phase = 'lobby';
       room.final = null;
-      room.history = [];
+      room.mode = null;
       room.notice = null;
       for (const p of room.players.values()) p.score = 0;
       this.broadcast(room);
@@ -389,39 +285,26 @@ export class GameEngine {
     });
   }
 
-  // ── Durante la ronda ──────────────────────────────────────────────────────────────────────
+  // ── Durante la partida ────────────────────────────────────────────────────────────────────
 
-  // Borrador de respuestas (el cliente lo manda mientras escribe). final = ya cortó la ronda.
-  answers(code: string, userId: string, raw: unknown, final = false): Promise<Result> {
+  // Lo que hace un jugador en la partida (responder, arriesgar una letra, marcar una palabra…)
+  action(code: string, userId: string, type: string, payload: unknown): Promise<Result> {
     return this.withLock(code, async () => {
       const room = this.rooms.get(code);
       const p = room?.players.get(userId);
       if (!room || !p || p.left) return fail('No estás en esta partida.');
-      if (room.phase !== 'playing' && room.phase !== 'collecting') return { ok: true }; // llegó tarde: se ignora
-      p.answers = cleanAnswers(raw, room.categories);
-      if (room.phase === 'collecting' && final) {
-        p.finalSent = true;
-        if (this.activePlayers(room).filter((x) => x.connected).every((x) => x.finalSent)) await this.validateRound(room);
-      }
-      return { ok: true };
+      if (!room.mode) return fail('La partida no empezó.');
+      return room.mode.action(userId, String(type ?? ''), payload);
     });
   }
 
+  // Tutti Frutti: borrador de respuestas (final = ya cortó la ronda) y ¡Basta!
+  answers(code: string, userId: string, raw: unknown, final = false): Promise<Result> {
+    return this.action(code, userId, 'answers', { answers: raw, final });
+  }
+
   basta(code: string, userId: string, raw: unknown): Promise<Result> {
-    return this.withLock(code, async () => {
-      const room = this.rooms.get(code);
-      const p = room?.players.get(userId);
-      if (!room || !p || p.left) return fail('No estás en esta partida.');
-      if (room.phase !== 'playing') return fail('La ronda ya terminó.');
-      const answers = cleanAnswers(raw, room.categories);
-      if (room.categories.some((c) => !(answers[c] ?? '').trim())) {
-        return fail('Para cantar ¡Basta! tenés que completar todas las categorías.');
-      }
-      p.answers = answers;
-      p.finalSent = true;
-      this.endRound(room, p.userId);
-      return { ok: true };
-    });
+    return this.action(code, userId, 'basta', { answers: raw });
   }
 
   // ── Para el gateway y los tests ───────────────────────────────────────────────────────────
@@ -437,29 +320,24 @@ export class GameEngine {
 
   // ── Internos ──────────────────────────────────────────────────────────────────────────────
 
-  private fromStored(stored: StoredRoom, settings: Settings): Room {
+  private fromStored(stored: StoredRoom, settings?: Settings): Room {
+    const game: MultiGameId = stored.game && MODES[stored.game] ? stored.game : 'tutti_frutti';
     const players = new Map<string, Player>();
     for (const sp of stored.players) players.set(sp.userId, this.newPlayer(sp, false));
     const first = [...players.values()].sort((a, b) => a.joinedAt - b.joinedAt)[0];
     return {
       code: stored.code,
       roomId: stored.roomId,
+      game,
       isPrivate: stored.isPrivate,
       hostUserId: first?.userId ?? null,
       players,
-      settings,
+      settings: settings ?? { ...MODES[game].defaults },
       phase: 'lobby',
       matchId: null,
-      roundNumber: 0,
-      roundId: null,
-      letter: null,
-      categories: [],
-      endsAt: null,
+      epoch: 0,
+      mode: null,
       nextAt: null,
-      bastaBy: null,
-      usedLetters: [],
-      history: [],
-      incomplete: false,
       final: null,
       notice: null,
       autoStart: false,
@@ -476,8 +354,6 @@ export class GameEngine {
       connected,
       left: false,
       score: 0,
-      answers: {},
-      finalSent: false,
     };
   }
 
@@ -524,11 +400,6 @@ export class GameEngine {
     for (const p of room.players.values()) if (p.timer) clearTimeout(p.timer);
   }
 
-  private schedule(room: Room, ms: number, fn: (room: Room) => Promise<void> | void) {
-    if (room.phaseTimer) clearTimeout(room.phaseTimer);
-    room.phaseTimer = setTimeout(() => void this.withLock(room.code, async () => fn(room)), ms);
-  }
-
   private async autoStart(room: Room, timeUp: boolean) {
     if (!room.autoStart || room.phase !== 'lobby') return;
     const all = this.activePlayers(room);
@@ -551,155 +422,77 @@ export class GameEngine {
   }
 
   private async startMatch(room: Room) {
-    room.matchId = await this.store.createMatch(room.roomId, room.settings);
+    const matchId = await this.store.createMatch(room.roomId, room.settings, room.game);
+    room.matchId = matchId;
     await this.store.setRoomStatus(room.roomId, 'playing');
-    room.roundNumber = 0;
-    room.usedLetters = [];
-    room.history = [];
-    room.incomplete = false;
+    room.epoch += 1;
     room.final = null;
     room.notice = null;
     for (const p of room.players.values()) p.score = 0;
-    this.beginCountdown(room);
+    room.mode = MODES[room.game].create(this.hostFor(room, matchId), { store: this.store, validator: this.validator });
+    await room.mode.start();
   }
 
-  private beginCountdown(room: Room) {
-    room.roundNumber += 1;
-    const pool = letrasDe(room.settings.tematica).filter((l) => !room.usedLetters.includes(l));
-    const letters = pool.length ? pool : letrasDe(room.settings.tematica).length ? letrasDe(room.settings.tematica) : LETRAS;
-    room.letter = letters[Math.floor(Math.random() * letters.length)];
-    room.usedLetters.push(room.letter);
-    room.categories = TEMATICAS[room.settings.tematica];
-    room.phase = 'countdown';
-    room.bastaBy = null;
-    room.endsAt = null;
-    room.nextAt = Date.now() + COUNTDOWN_MS;
-    for (const p of room.players.values()) {
-      p.answers = {};
-      p.finalSent = false;
-    }
-    this.broadcast(room);
-    this.schedule(room, COUNTDOWN_MS, (r) => this.beginRound(r));
-  }
-
-  private async beginRound(room: Room) {
-    if (room.phase !== 'countdown' || !room.matchId || !room.letter) return;
-    room.roundId = await this.store.createRound(room.matchId, room.roundNumber, room.letter);
-    room.phase = 'playing';
-    room.nextAt = null;
-    room.endsAt = Date.now() + room.settings.seconds * 1000;
-    this.broadcast(room);
-    this.schedule(room, room.settings.seconds * 1000, (r) => this.endRound(r, null));
-  }
-
-  // Corta la ronda para todos (por tiempo o porque alguien cantó ¡Basta!)
-  private endRound(room: Room, bastaUserId: string | null) {
-    if (room.phase !== 'playing') return;
-    room.phase = 'collecting';
-    room.bastaBy = bastaUserId ? (room.players.get(bastaUserId)?.username ?? null) : null;
-    room.endsAt = null;
-    this.broadcast(room);
-    this.schedule(room, COLLECT_MS, (r) => this.validateRound(r));
-  }
-
-  private async validateRound(room: Room) {
-    if (room.phase !== 'collecting') return;
-    if (room.phaseTimer) clearTimeout(room.phaseTimer);
-    room.phase = 'validating';
-    this.broadcast(room);
-
-    const roundId = room.roundId;
-    const letter = room.letter!;
-    const categories = room.categories;
-    const participants = this.activePlayers(room);
-    const items: AnswerToCheck[] = [];
-    for (const p of participants) {
-      for (const c of categories) items.push({ key: `${p.userId}::${c}`, category: c, answer: (p.answers[c] ?? '').trim() || null });
-    }
-
-    // La IA puede tardar: la llamada se hace FUERA de la fila de la sala (así se puede seguir
-    // entrando, saliendo y reconectando mientras tanto). Después se vuelve a la fila.
-    void (async () => {
-      let checks: Map<string, AnswerCheck>;
-      try {
-        checks = await this.validator.validateAnswers(letter, items);
-      } catch (e) {
-        this.log(`Validación de la ronda falló: ${e}`);
-        checks = new Map();
-      }
-      await this.withLock(room.code, () => this.applyResults(room, roundId, participants, checks));
-    })();
-  }
-
-  private async applyResults(room: Room, roundId: string | null, participants: Player[], checks: Map<string, AnswerCheck>) {
-    if (room.phase !== 'validating' || room.roundId !== roundId || this.rooms.get(room.code) !== room) return;
-    const categories = room.categories;
-    const checkOf = (p: Player, c: string): AnswerCheck =>
-      checks.get(`${p.userId}::${c}`) ?? { status: 'unverified', canonical: null, reason: 'No se pudo validar (la IA no respondió). No suma puntos.' };
-
-    const byCategory: Record<string, CategoryEntry[]> = {};
-    for (const c of categories) {
-      byCategory[c] = participants.map((p) => {
-        const ch = checkOf(p, c);
-        return { playerId: p.userId, status: ch.status, canonical: ch.canonical ?? p.answers[c] ?? null };
-      });
-    }
-    const scores = scoreRound(byCategory);
-
-    const result: RoundResult = {
-      number: room.roundNumber,
-      letter: room.letter!,
-      bastaBy: room.bastaBy,
-      incomplete: false,
-      categories: categories.map((c) => ({
-        category: c,
-        entries: participants.map((p) => {
-          const ch = checkOf(p, c);
-          return {
-            userId: p.userId,
-            username: p.username,
-            answer: (p.answers[c] ?? '').trim() || null,
-            status: ch.status,
-            canonical: ch.canonical,
-            reason: ch.reason,
-            points: scores[p.userId]?.byCategory[c] ?? 0,
-          };
-        }),
-      })),
-      roundPoints: Object.fromEntries(participants.map((p) => [p.userId, scores[p.userId]?.total ?? 0])),
-    };
-    result.incomplete = result.categories.some((c) => c.entries.some((e) => e.status === 'unverified'));
-    room.incomplete ||= result.incomplete;
-    for (const p of participants) p.score += result.roundPoints[p.userId] ?? 0;
-    room.history.push(result);
-
-    if (roundId) {
-      await this.store
-        .saveRound(
-          roundId,
-          result.categories.flatMap((c) =>
-            c.entries.map((e) => ({
-              roomPlayerId: room.players.get(e.userId)!.roomPlayerId,
-              category: c.category,
-              answer: e.answer,
-              status: e.status,
-              points: e.points,
-            })),
-          ),
-        )
-        .catch((e) => this.log(`saveRound: ${e}`));
-    }
-
-    if (room.roundNumber >= room.settings.rounds) {
-      await this.finishMatch(room, 'completed');
-      return;
-    }
-    room.phase = 'results';
-    room.nextAt = Date.now() + RESULTS_MS;
-    this.broadcast(room);
-    this.schedule(room, RESULTS_MS, (r) => {
-      if (r.phase === 'results') this.beginCountdown(r);
+  // Lo que puede hacer el modo de juego con SU partida. Si la sala ya no existe o empezó otra
+  // partida, los relojes y respuestas viejas se ignoran.
+  private hostFor(room: Room, matchId: string): ModeHost {
+    const epoch = room.epoch;
+    const alive = () => this.rooms.get(room.code) === room && room.epoch === epoch;
+    const ref = (p: Player): PlayerRef => ({
+      userId: p.userId,
+      username: p.username,
+      connected: p.connected,
+      roomPlayerId: p.roomPlayerId,
+      joinedAt: p.joinedAt,
     });
+    return {
+      code: room.code,
+      matchId,
+      settings: room.settings,
+      getPhase: () => room.phase,
+      setPhase: (phase, nextAt) => {
+        room.phase = phase;
+        if (nextAt !== undefined) room.nextAt = nextAt;
+      },
+      players: () => this.activePlayers(room).sort((a, b) => a.joinedAt - b.joinedAt).map(ref),
+      player: (userId) => {
+        const p = room.players.get(userId);
+        return p ? ref(p) : undefined;
+      },
+      schedule: (ms, fn) => {
+        if (room.phaseTimer) clearTimeout(room.phaseTimer);
+        room.phaseTimer = setTimeout(() => void this.withLock(room.code, async () => {
+          if (alive()) await fn();
+        }), ms);
+      },
+      cancelTimer: () => {
+        if (room.phaseTimer) clearTimeout(room.phaseTimer);
+        room.phaseTimer = undefined;
+      },
+      outside: (work, then) => {
+        void (async () => {
+          let value: Awaited<ReturnType<typeof work>>;
+          try {
+            value = await work();
+          } catch (e) {
+            this.log(`Trabajo de la partida falló: ${e}`);
+            return;
+          }
+          await this.withLock(room.code, async () => {
+            if (alive()) await then(value);
+          });
+        })();
+      },
+      addScore: (userId, points) => {
+        const p = room.players.get(userId);
+        if (p) p.score += Math.max(0, Math.round(points));
+      },
+      broadcast: () => {
+        if (alive()) this.broadcast(room);
+      },
+      finish: () => this.finishMatch(room, 'completed'),
+      log: (msg) => this.log(msg),
+    };
   }
 
   // Si quedan menos de 2 conectados durante la partida, se espera un rato y se termina
@@ -729,7 +522,7 @@ export class GameEngine {
     const matchId = room.matchId;
     room.matchId = null; // así nunca se termina dos veces
     room.phase = 'finished';
-    room.endsAt = room.nextAt = null;
+    room.nextAt = null;
 
     const everyone = [...room.players.values()];
     const best = Math.max(0, ...everyone.filter((p) => !p.left).map((p) => p.score));
@@ -750,8 +543,9 @@ export class GameEngine {
         abandoned: p.left,
       };
     });
-    // Cuenta para estadísticas si se jugó al menos una ronda y la IA validó todo
-    const countsForStats = room.history.length > 0 && !room.incomplete;
+    // Cuenta para estadísticas si se jugó al menos una ronda (y, en Tutti Frutti, la IA validó todo)
+    const mode = room.mode;
+    const countsForStats = !!mode && mode.roundsPlayed() > 0 && mode.countsForStats();
 
     let achievements: Record<string, UnlockedAchievement[]> = {};
     if (matchId) {
@@ -759,8 +553,15 @@ export class GameEngine {
         achievements = await this.store.finishMatch(
           matchId,
           room.roomId,
-          standings.map((s) => ({ userId: s.userId, points: s.points, won: s.won, abandoned: s.abandoned })),
+          standings.map((s) => ({
+            userId: s.userId,
+            points: s.points,
+            won: s.won,
+            abandoned: s.abandoned,
+            ...(mode?.extraFor?.(s.userId) ? { extra: mode.extraFor(s.userId) } : {}),
+          })),
           countsForStats,
+          room.game,
         );
       } catch (e) {
         this.log(`finishMatch: ${e}`);
@@ -772,17 +573,16 @@ export class GameEngine {
   }
 
   private snapshot(room: Room, userId: string): RoomSnapshot {
-    const me = room.players.get(userId);
-    const inRound = ['countdown', 'playing', 'collecting', 'validating'].includes(room.phase);
     return {
       code: room.code,
+      game: room.game,
       isPrivate: room.isPrivate,
       me: userId,
       hostUserId: room.hostUserId,
       phase: room.phase,
       settings: room.settings,
       minPlayers: MIN_PLAYERS,
-      maxPlayers: MAX_PLAYERS,
+      maxPlayers: MODES[room.game].maxPlayers,
       serverNow: Date.now(),
       players: [...room.players.values()]
         .sort((a, b) => a.joinedAt - b.joinedAt)
@@ -795,20 +595,12 @@ export class GameEngine {
           isHost: p.userId === room.hostUserId,
           score: p.score,
         })),
-      round: inRound
-        ? {
-            number: room.roundNumber,
-            total: room.settings.rounds,
-            letter: room.phase === 'countdown' ? null : room.letter,
-            categories: room.categories,
-            endsAt: room.endsAt,
-            bastaBy: room.bastaBy,
-            myAnswers: me?.answers ?? {},
-          }
-        : null,
       nextAt: room.nextAt,
-      lastResult: room.history[room.history.length - 1] ?? null,
-      history: room.history,
+      round: null,
+      lastResult: null,
+      history: [],
+      view: null,
+      ...((room.mode?.view(userId) ?? {}) as Partial<RoomSnapshot>),
       final: room.final
         ? {
             reason: room.final.reason,

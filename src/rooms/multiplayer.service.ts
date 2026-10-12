@@ -23,7 +23,7 @@ export class MultiplayerService {
       (msg) => this.logger.warn(msg),
     );
     this.queue = new Matchmaking(
-      (userIds, settings) => this.engine.createQueueRoom(userIds, settings),
+      (userIds, settings, game) => this.engine.createQueueRoom(userIds, settings, game),
       {
         sendQueueState: (userId, state: QueueState) => this.emitToUser(userId, 'queue:state', state),
         sendMatched: (userId, code) => this.emitToUser(userId, 'queue:matched', { code }),

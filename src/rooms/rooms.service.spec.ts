@@ -54,14 +54,32 @@ describe('RoomsService (base del multijugador)', () => {
       where: { id: 'm1', status: 'in_progress' },
       data: expect.objectContaining({ status: 'finished' }),
     });
-    expect(stats.recordMatchResult).toHaveBeenCalledWith('u1', { won: true, points: 50 }, prisma);
-    expect(stats.recordMatchResult).toHaveBeenCalledWith('u2', { won: false, points: 20 }, prisma);
-    expect(stats.recordMatchResult).toHaveBeenCalledWith('u3', { won: false, points: 0 }, prisma); // abandonó: perdió
+    expect(stats.recordMatchResult).toHaveBeenCalledWith('u1', { won: true, points: 50, game: 'tutti_frutti' }, prisma);
+    expect(stats.recordMatchResult).toHaveBeenCalledWith('u2', { won: false, points: 20, game: 'tutti_frutti' }, prisma);
+    expect(stats.recordMatchResult).toHaveBeenCalledWith('u3', { won: false, points: 0, game: 'tutti_frutti' }, prisma); // abandonó: perdió
     expect(achievements.unlockFor).toHaveBeenCalledWith('u1', expect.objectContaining({ mode: 'multiplayer', won: true }), prisma);
     expect(res.u1.map((a) => a.id)).toEqual(['campeon_del_barrio']);
     // ELO de todos juntos (con los resultados de la partida)
-    expect(stats.rateMultiplayer).toHaveBeenCalledWith(prisma, 'm1', resultados);
+    expect(stats.rateMultiplayer).toHaveBeenCalledWith(prisma, 'm1', resultados, 'tutti_frutti');
     expect(prisma.rooms.update).toHaveBeenCalledWith({ where: { id: 'room1' }, data: { status: 'waiting' } });
+  });
+
+  it('los juegos nuevos suman en las estadísticas de ese juego, mueven el ELO y revisan sus logros', async () => {
+    prisma.matches.updateMany.mockResolvedValue({ count: 1 });
+    stats.recordMatchResult.mockResolvedValue({ ...perfil, game_stats: { matches_played: 3, matches_won: 2, total_points: 90, current_streak: 1 } });
+    const conExtra = [
+      { userId: 'u1', points: 120, won: true, abandoned: false, extra: { errores: 0, dificultad: 'dificil' } },
+      { userId: 'u2', points: 40, won: false, abandoned: false },
+    ];
+    await service.finishMatch('m2', 'room2', conExtra, true, 'ahorcado');
+    expect(stats.rateMultiplayer).toHaveBeenCalledWith(prisma, 'm2', [
+      { userId: 'u1', points: 120, won: true, abandoned: false },
+      { userId: 'u2', points: 40, won: false, abandoned: false },
+    ], 'ahorcado');
+    expect(stats.recordMatchResult).toHaveBeenCalledWith('u1', { won: true, points: 120, game: 'ahorcado' }, prisma);
+    expect(achievements.unlockFor).toHaveBeenCalledWith('u1', expect.objectContaining({
+      game: 'ahorcado', mode: 'multiplayer', won: true, gameMatchesWon: 2, extra: { errores: 0, dificultad: 'dificil' },
+    }), prisma);
   });
 
   it('si ya estaba terminada, no suma nada', async () => {

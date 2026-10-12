@@ -69,7 +69,8 @@ src/
     auth-validation.pipe.ts  ValidationPipe sólo de /auth, errores agrupados por campo
     dto/auth-rules.ts  reglas de registro (largos, regex, edad mínima)
   users/               perfil (/users/me)
-  rooms/               salas multijugador + gateway Socket.IO
+  rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
+    modes/             un "modo" por juego: tutti-frutti, ahorcado, trivia, sopa, memotest (index.ts = registro)
   solo-matches/        partidas contra la IA
   tutti-frutti/        validación de respuestas (reglas en código + IA) y puntaje (scoring.ts)
   categories/          listado de categorías
@@ -119,7 +120,7 @@ prisma/
     como perdidas (cortan la racha); si tienen más de 24 h, se cierran sin tocar estadísticas.
   - La API vieja por rondas (`POST /solo-matches`, `.../answers`, `.../validate`) se borró: no controlaba de quién
     era la partida y dejaba llamar a la IA sin límite.
-- Multijugador en tiempo real (`src/rooms/`), ver la sección "Multijugador" más abajo.
+- Multijugador en tiempo real de todos los juegos (`src/rooms/`), ver la sección "Multijugador" más abajo.
 - **ELO** (`src/stats/elo.ts`): arranca en 1000, K = 32. Contra la máquina, ELO fijo por dificultad (fácil 800,
   medio 1000, difícil 1200, experto 1400); abandonar = derrota. Multijugador: cada uno contra cada uno (gana el que
   hizo más puntos), dividido por la cantidad de rivales; el que abandona pierde contra todos. Las partidas "sin
@@ -185,7 +186,26 @@ prisma/
 
 ## Multijugador (Socket.IO)
 
-- **El servidor manda en todo** (`src/rooms/game-engine.ts`): sortea letra (de `letrasDe(temática)`, sin repetir
+- Hay multijugador (sala privada con código, unirse con código y partida pública) para **Tutti Frutti, ahorcado,
+  trivia, sopa de letras y memotest**. El desafío del día es individual.
+- **Motor común** (`src/rooms/game-engine.ts`): salas, lobby, anfitrión, entradas/salidas, reconexión, "quedan menos de
+  2" y el final (posiciones, estadísticas y logros una sola vez). **Cada juego es un modo** (`src/rooms/modes/*.mode.ts`,
+  registro en `modes/index.ts`, tipos en `modes/types.ts`) que define sus opciones (`validSettings`), la configuración
+  pública, el máximo de jugadores y cómo se juega (`action(userId, type, payload)` + `view(userId)` armado por jugador).
+  Los juegos nuevos heredan de `RoundMode` (`round-mode.ts`): cuenta regresiva → jugando → resultados → siguiente ronda.
+- Configuración de la sala: `{ tematica, dificultad?, rounds, seconds }`; cada juego usa lo que necesita (ver tabla).
+  **Las opciones están copiadas en el frontend** (`src/games/multiConfig.ts`): si cambiás una, cambiala en los dos repos.
+
+  | Juego | tematica | dificultad | rounds | seconds | Cómo se juega |
+  |---|---|---|---|---|---|
+  | `tutti_frutti` | temática | — | rondas 1/3/5 | 30–120 por ronda | lo de abajo |
+  | `trivia` | `todas` o categoría | mezcla/facil/medio/dificil | preguntas 5/10/15 | 10/15/20 por pregunta | misma pregunta a la vez; suma más el más rápido (+5 al primero que acierta); se revela cuando respondieron todos o se acabó el tiempo |
+  | `ahorcado` | — | facil/medio/dificil | palabras 1/3/5 | 60/90/120 por palabra | misma palabra, cada uno con su pelota; puntos como solo + bonus 20/10/5 por orden de llegada; de los rivales sólo se ven errores y avance |
+  | `sopa_de_letras` | temática | facil/medio/dificil | grillas 1/2/3 | 120–300 por grilla | misma grilla; cada palabra es del primero que la marca (5 + largo, × dificultad) |
+  | `memotest` | tema | nivel | tableros 1/2/3 | 10/15/20 **por turno** | por turnos (máx. 4 jugadores); par = 10 puntos y seguís; si no, se ven 1,5 s y pasa el turno |
+- **Nunca viajan secretos**: la correcta de la trivia, la palabra del ahorcado, dónde están las palabras de la sopa o el
+  mazo del memotest llegan recién cuando corresponde (`view` se arma por jugador). Los tests lo controlan (`modes.spec.ts`).
+- Tutti Frutti: el servidor sortea letra (de `letrasDe(temática)`, sin repetir
   en la partida) y categorías, controla el reloj y el ¡Basta! (corta para todos, sólo con todo completo), junta las
   respuestas, las valida con el mismo validador (UNA llamada por ronda para todos los jugadores) y puntúa con
   `scoring.ts`. Fases: `lobby → countdown (3 s) → playing → collecting (≤2 s) → validating → results (10 s) → … → finished`.
@@ -193,19 +213,26 @@ prisma/
   partida, rondas y respuestas. Si el server se reinicia, las partidas en curso se pierden y las salas vuelven al lobby.
 - `rooms.gateway.ts`: la conexión se autentica con el JWT en el handshake (`io(url, { auth: { token } })`, middleware
   antes de aceptar). El userId sale **siempre** del token. Eventos (todos con respuesta `{ ok, error }`):
-  `room:join|leave|settings|start|again`, `round:answers {answers, final?}`, `round:basta {answers}`,
-  `queue:join {tematica, size}`, `queue:leave`. El servidor manda `room:state` (estado completo, armado por jugador:
+  `room:join|leave|settings|start|again`, `round:answers {answers, final?}` y `round:basta {answers}` (Tutti Frutti),
+  `game:action {type, payload}` (los demás: trivia `answer {opcion}`, ahorcado `letter {letra}` / `guess {respuesta}`,
+  sopa `mark {desde, hasta}`, memotest `flip {carta}`), `queue:join {game, tematica, size}`, `queue:leave`. El servidor manda `room:state` (estado completo, armado por jugador:
   cada uno ve sólo sus respuestas), `queue:state` y `queue:matched {code}`.
-- HTTP: sólo `POST /rooms {tematica, rounds, seconds}` (crea sala privada, devuelve `{code}`) y `GET /rooms/:code`.
+- HTTP: sólo `POST /rooms {game?, tematica?, dificultad?, rounds?, seconds?}` (crea sala privada, devuelve `{code}`; sin
+  `game` es Tutti Frutti) y `GET /rooms/:code`. La sala guarda de qué juego es (`rooms.game`, migración
+  `20261013120000_salas_por_juego`).
   La API vieja por votos (start/answers/close/vote/tally/finish) se borró. La tabla `votes` quedó sin uso: con IA como
   árbitro y ranking/ELO, los votos entre jugadores se pueden arreglar entre amigos.
-- Reglas: 2 a 8 jugadores; rondas 1/3/5; tiempo 30/45/60/90/120 s. Desconexión en el lobby → sale a los 15 s.
+- Reglas: 2 a 8 jugadores (memotest: 2 a 4). Desconexión en el lobby → sale a los 15 s.
   Recarga en partida → vuelve con lo que había escrito. Anfitrión desconectado 10 s → pasa al siguiente. Menos de 2
   conectados por 20 s → termina (los que no volvieron cuentan como abandono = perdida).
+- Abandonar (botón Volver / `room:leave`) en plena partida = perdida, y a los demás les llega "X abandonó la partida."
+  En el memotest, si se va o se desconecta el del turno, pasa al siguiente.
 - Al final, `RoomsService.finishMatch` (una sola vez, en transacción): partidas, victorias (empate en el primer
-  puesto = ganan todos), puntos, rachas y logros. Si la IA no validó algo o no se jugó ninguna ronda, no cuenta.
-- Cola pública (`matchmaking.ts`): por temática y tamaño (`pocos` 2–4, `muchos` 5–8); con el mínimo espera 10 s por
-  más y arma la sala (3 rondas de 60 s), que arranca sola cuando entran todos (o a los 15 s con ≥2).
+  puesto = ganan todos), puntos, rachas, **estadísticas del juego**, ELO, ligas y logros (con `game` y `extra` del modo).
+  Si la IA no validó algo (Tutti Frutti) o no se jugó ninguna ronda, no cuenta.
+- Cola pública (`matchmaking.ts`): por juego, temática (sólo Tutti Frutti) y tamaño (`pocos` 2–4, `muchos` 5–8; el
+  memotest sólo `pocos`); con el mínimo espera 10 s por más y arma la sala con la configuración pública del juego
+  (Tutti Frutti: 3 rondas de 60 s; sopa y memotest: temática al azar), que arranca sola cuando entran todos (o a los 15 s con ≥2).
 
 ## Plataforma de juegos
 
@@ -219,7 +246,9 @@ prisma/
   secreto), `loadActive` (404 si no es tuyo, 409 si terminó), `saveState`, `finish` (una sola vez, en transacción:
   estadísticas generales y del juego, `match_results` para las ligas y logros) y `closeAbandoned` (las que quedaron
   sin terminar cuentan como perdidas con 0 puntos). El resultado y los puntos los calcula el juego en el servidor.
-- Sólo Tutti Frutti mueve el ELO (`hasElo`); los demás juegos cuentan para las ligas y el ranking.
+- `multiplayer: true` en el catálogo = tiene menú "¿Cómo querés jugar?" y salas (todos menos el desafío del día).
+- ELO: jugando solo, sólo Tutti Frutti lo mueve (`hasElo`, contra la máquina). **En multijugador todos los juegos lo
+  mueven** (hay rivales). Todos cuentan para las ligas y el ranking.
 - Ranking por juego: `GET /users/ranking?game=<id>&period=…` y `GET /users/me/ranking?game=…`. `GET /users/me/games`
   devuelve las estadísticas por juego.
 - Migración `20261012130000_plataforma_juegos` (sin aplicar): copia los totales de cada perfil a `game_stats` como
@@ -284,6 +313,9 @@ prisma/
   partida). Un logro con `game` sólo se revisa con partidas de ese juego; sin `game` es general. El contexto trae
   las estadísticas del juego (`gameMatchesPlayed`, …) y datos propios de la partida en `extra`. En la base (`user_achievements`) sólo se guarda cuál y cuándo.
   **Nunca cambies el id de un logro existente.**
+- Cada juego nuevo tiene 3 logros jugando solo y 1 por ganar en multijugador (`ahorcado_multi`, `trivia_multi`,
+  `sopa_multi`, `memotest_multi`). En multijugador, la trivia y el ahorcado pasan `extra` (aciertos, errores…) así
+  también valen sus logros de "partida perfecta".
 - Se otorgan al terminar una partida (solo o multijugador), dentro de la misma transacción que las
   estadísticas (`AchievementsService.unlockFor`). `GET /users/me/achievements` los lista todos.
 

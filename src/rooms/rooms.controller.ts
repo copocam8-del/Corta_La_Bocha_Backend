@@ -18,7 +18,8 @@ export class RoomsController {
   // Crea una sala privada con código; quien la crea es el anfitrión
   @Post()
   async create(@Body(authValidationPipe) dto: CreateRoomDto, @Request() req) {
-    const res = await this.multiplayer.engine.createPrivateRoom(req.user.userId, dto);
+    const { game = 'tutti_frutti', ...settings } = dto;
+    const res = await this.multiplayer.engine.createPrivateRoom(req.user.userId, settings, game);
     if (!res.ok) throw new BadRequestException(res.error);
     return { code: res.code };
   }

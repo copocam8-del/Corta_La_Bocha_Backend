@@ -2,7 +2,8 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { StatsService } from '../stats/stats.service';
 import { AchievementsService, UnlockedAchievement } from '../achievements/achievements.service';
-import type { FinalPlayerResult, RoomStore, SavedAnswer, Settings, StoredPlayer, StoredRoom } from './game-engine';
+import type { FinalPlayerResult, MultiGameId, RoomStore, SavedAnswer, Settings, StoredPlayer, StoredRoom } from './game-engine';
+import { isMultiGame } from './modes/types';
 
 // Acceso a la base del multijugador (lo usa el motor: game-engine.ts). Acá no hay reglas de juego:
 // sólo se guarda lo que decide el motor.
@@ -41,7 +42,7 @@ export class RoomsService implements RoomStore {
     };
   }
 
-  async createRoom(isPrivate: boolean, userIds: string[]): Promise<StoredRoom> {
+  async createRoom(isPrivate: boolean, userIds: string[], game: MultiGameId = 'tutti_frutti'): Promise<StoredRoom> {
     let code = this.generateRoomCode();
     while (await this.prisma.rooms.findUnique({ where: { room_code: code } })) code = this.generateRoomCode();
 
@@ -49,6 +50,7 @@ export class RoomsService implements RoomStore {
       data: {
         room_code: code,
         is_private: isPrivate,
+        game,
         max_players: 8,
         status: 'waiting',
         // Uno por uno para que el orden de llegada (joined_at) quede igual que el de la lista
@@ -61,6 +63,7 @@ export class RoomsService implements RoomStore {
       code: room.room_code!,
       isPrivate: room.is_private,
       status: room.status,
+      game,
       players: room.room_players.map((rp) => this.toStoredPlayer(rp)),
     };
   }
@@ -76,6 +79,7 @@ export class RoomsService implements RoomStore {
       code: room.room_code!,
       isPrivate: room.is_private,
       status: room.status,
+      game: isMultiGame(room.game) ? room.game : 'tutti_frutti',
       players: room.room_players.map((rp) => this.toStoredPlayer(rp)),
     };
   }
@@ -103,12 +107,14 @@ export class RoomsService implements RoomStore {
     await this.prisma.rooms.update({ where: { id: roomId }, data: { status } });
   }
 
-  async createMatch(roomId: string, settings: Settings): Promise<string> {
+  async createMatch(roomId: string, settings: Settings, game: MultiGameId = 'tutti_frutti'): Promise<string> {
     const match = await this.prisma.matches.create({
       data: {
         room_id: roomId,
         mode: 'multiplayer',
-        tematica: settings.tematica,
+        game,
+        ai_difficulty: settings.dificultad ?? null, // en los juegos nuevos, la dificultad elegida
+        tematica: settings.tematica.slice(0, 30),
         round_seconds: settings.seconds,
         status: 'in_progress',
       },
@@ -150,15 +156,17 @@ export class RoomsService implements RoomStore {
   }
 
   /**
-   * Termina una partida multijugador: estadísticas y logros de todos (una sola vez). Si la IA no
-   * pudo validar alguna respuesta (countsForStats = false), la partida se cierra pero no cuenta,
-   * igual que en la partida contra la máquina. Quien abandonó cuenta como partida perdida.
+   * Termina una partida multijugador (de cualquier juego): estadísticas generales y del juego, ELO,
+   * ligas y logros de todos (una sola vez). Si en Tutti Frutti la IA no pudo validar alguna
+   * respuesta (countsForStats = false), la partida se cierra pero no cuenta, igual que en la partida
+   * contra la máquina. Quien abandonó cuenta como partida perdida.
    */
   async finishMatch(
     matchId: string,
     roomId: string,
     results: FinalPlayerResult[],
     countsForStats: boolean,
+    game: MultiGameId = 'tutti_frutti',
   ): Promise<Record<string, UnlockedAchievement[]>> {
     const newAchievements: Record<string, UnlockedAchievement[]> = {};
     await this.prisma.$transaction(async (tx) => {
@@ -171,10 +179,12 @@ export class RoomsService implements RoomStore {
       await tx.rooms.update({ where: { id: roomId }, data: { status: 'waiting' } });
       if (!countsForStats) return;
 
-      // ELO de todos con los ELO de antes de la partida + registro para las ligas
-      await this.stats.rateMultiplayer(tx, matchId, results);
+      // ELO de todos con los ELO de antes de la partida + registro para las ligas. En multijugador
+      // hay rivales, así que todos los juegos mueven el ELO.
+      await this.stats.rateMultiplayer(tx, matchId, results.map(({ extra: _extra, ...r }) => r), game);
       for (const r of results) {
-        const updated = await this.stats.recordMatchResult(r.userId, { won: r.won, points: r.points }, tx);
+        const updated = await this.stats.recordMatchResult(r.userId, { won: r.won, points: r.points, game }, tx);
+        const gs = updated.game_stats;
         newAchievements[r.userId] = await this.achievements.unlockFor(
           r.userId,
           {
@@ -182,8 +192,15 @@ export class RoomsService implements RoomStore {
             matchesWon: updated.matches_won,
             totalPoints: updated.total_points,
             currentStreak: updated.current_streak,
+            game,
             mode: 'multiplayer',
             won: r.won,
+            points: r.points,
+            gameMatchesPlayed: gs?.matches_played,
+            gameMatchesWon: gs?.matches_won,
+            gameTotalPoints: gs?.total_points,
+            gameCurrentStreak: gs?.current_streak,
+            extra: r.extra,
           },
           tx,
         );

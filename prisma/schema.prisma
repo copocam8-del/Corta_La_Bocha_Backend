@@ -107,6 +107,8 @@ model rooms {
   room_code   String?  @unique @db.VarChar(10)
   is_private  Boolean  @default(false)
   status      String   @default("waiting") @db.VarChar(20)
+  // De qué juego es la sala (tutti_frutti, ahorcado, trivia, sopa_de_letras, memotest)
+  game        String   @default("tutti_frutti") @db.VarChar(30)
   max_players Int      @default(8)
   created_at  DateTime @default(now()) @db.Timestamp(6)
 

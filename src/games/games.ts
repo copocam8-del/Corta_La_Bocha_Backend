@@ -13,8 +13,9 @@ export interface GameInfo {
   name: string;
   description: string;
   available: boolean; // false = "Próximamente" en la pantalla de selección
-  path: string; // pantalla del frontend
-  hasElo: boolean; // sólo los juegos con rival mueven el ELO
+  path: string; // pantalla del frontend para jugar solo
+  multiplayer: boolean; // tiene salas con amigos y partida pública (menú "¿Cómo querés jugar?")
+  hasElo: boolean; // mueve el ELO jugando solo (contra la máquina). En multijugador, todos lo mueven
 }
 
 export const GAMES: GameInfo[] = [
@@ -23,7 +24,8 @@ export const GAMES: GameInfo[] = [
     name: 'Tutti Frutti',
     description: 'Completá las categorías futboleras con la letra que salga. Contra la máquina o con amigos.',
     available: true,
-    path: '/lobby',
+    path: '/game-setup',
+    multiplayer: true,
     hasElo: true,
   },
   {
@@ -32,6 +34,7 @@ export const GAMES: GameInfo[] = [
     description: 'Ahorcado futbolero: adiviná el nombre antes de que se desinfle la pelota.',
     available: true,
     path: '/ahorcado',
+    multiplayer: true,
     hasElo: false,
   },
   {
@@ -40,6 +43,7 @@ export const GAMES: GameInfo[] = [
     description: 'Preguntas de fútbol con 4 opciones. Sumás por acertar y por rapidez.',
     available: true,
     path: '/trivia',
+    multiplayer: true,
     hasElo: false,
   },
   {
@@ -48,6 +52,7 @@ export const GAMES: GameInfo[] = [
     description: 'Las mismas preguntas para todos, una vez por día. Mantené tu racha.',
     available: true,
     path: '/desafio-diario',
+    multiplayer: false,
     hasElo: false,
   },
   {
@@ -56,6 +61,7 @@ export const GAMES: GameInfo[] = [
     description: 'Encontrá los nombres futboleros escondidos en la grilla.',
     available: true,
     path: '/sopa-de-letras',
+    multiplayer: true,
     hasElo: false,
   },
   {
@@ -64,6 +70,7 @@ export const GAMES: GameInfo[] = [
     description: 'Da vuelta las cartas y encontrá los pares futboleros.',
     available: true,
     path: '/memotest',
+    multiplayer: true,
     hasElo: false,
   },
 ];

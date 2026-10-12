@@ -148,15 +148,22 @@ export class RoomsGateway implements OnGatewayInit, OnGatewayConnection, OnGatew
     return this.multiplayer.engine.answers(str(body?.code).toUpperCase(), this.me(client).userId, body?.answers, body?.final === true);
   }
 
+  // Juegos nuevos (ahorcado, trivia, sopa, memotest): una acción del jugador. Qué tipos hay y qué
+  // datos llevan lo define el modo de cada juego (src/rooms/modes/*.mode.ts).
+  @SubscribeMessage('game:action')
+  gameAction(@MessageBody() body: { code?: string; type?: string; payload?: unknown }, @ConnectedSocket() client: Socket) {
+    return this.multiplayer.engine.action(str(body?.code).toUpperCase(), this.me(client).userId, str(body?.type), body?.payload ?? {});
+  }
+
   @SubscribeMessage('round:basta')
   basta(@MessageBody() body: { code?: string; answers?: unknown }, @ConnectedSocket() client: Socket) {
     return this.multiplayer.engine.basta(str(body?.code).toUpperCase(), this.me(client).userId, body?.answers);
   }
 
   @SubscribeMessage('queue:join')
-  queueJoin(@MessageBody() body: { tematica?: string; size?: string }, @ConnectedSocket() client: Socket) {
+  queueJoin(@MessageBody() body: { game?: string; tematica?: string; size?: string }, @ConnectedSocket() client: Socket) {
     const me = this.me(client);
-    return this.multiplayer.queue.join({ userId: me.userId, username: me.username }, str(body?.tematica), str(body?.size));
+    return this.multiplayer.queue.join({ userId: me.userId, username: me.username }, str(body?.tematica), str(body?.size), str(body?.game) || 'tutti_frutti');
   }
 
   @SubscribeMessage('queue:leave')
