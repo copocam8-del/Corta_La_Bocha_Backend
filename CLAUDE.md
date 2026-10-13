@@ -267,7 +267,9 @@ prisma/
 - Se ignoran tildes y mayúsculas; la Ñ es una letra aparte. Espacios y signos se ven desde el principio.
 - 6 errores = "murió la redonda". Puntos al ganar: base (60/90/130 según dificultad) − 10 por error + hasta 30 por
   rapidez (−1 cada 5 s), mínimo 10. Perder = 0. Partidas sin terminar por más de 30 min = perdidas.
-- Banco en `ahorcado-bank.ts` (sólo nombres reales y conocidos). Logros: `redonda_intacta`, `ahorcado_crack`, `ahorcado_diez`.
+- Banco en `ahorcado-bank.ts` (sólo nombres reales y conocidos, y palabras futboleras). Pistas: Jugador, Equipo, Selección,
+  Estadio, DT, Jugada, Palabra futbolera, Posición, Reglamento, Equipamiento, Partes de la cancha, Torneo y Premio
+  (la pista nunca puede ser parte de la respuesta: "Director técnico" va con "Palabra futbolera", no con "DT"). Logros: `redonda_intacta`, `ahorcado_crack`, `ahorcado_diez`.
 
 ## Trivia (`src/trivia/`)
 
