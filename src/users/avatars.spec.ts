@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { BadRequestException } from '@nestjs/common';
-import { AVATAR_IDS, BASE_AVATAR_IDS, CLUB_AVATAR_IDS } from './avatars';
+import { AVATAR_IDS, BASE_AVATAR_IDS, CLUB_AVATAR_IDS, CLUB_AVATAR_IDS_2 } from './avatars';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { authValidationPipe } from '../auth/auth-validation.pipe';
 
@@ -24,11 +24,19 @@ describe('avatares', () => {
     expect(CLUB_AVATAR_IDS.every((id) => id.startsWith('hincha_'))).toBe(true);
   });
 
+  it('cada hincha tiene una segunda pose con el mismo id + "_2"', () => {
+    expect(CLUB_AVATAR_IDS_2).toEqual(CLUB_AVATAR_IDS.map((id) => `${id}_2`));
+    expect(AVATAR_IDS.length).toBe(BASE_AVATAR_IDS.length + 2 * CLUB_AVATAR_IDS.length);
+  });
+
   it('el perfil acepta sólo ids válidos', async () => {
     const validar = (avatar_id: unknown) => authValidationPipe.transform({ avatar_id }, { type: 'body', metatype: UpdateProfileDto });
     await expect(validar('hincha_boca')).resolves.toBeDefined();
     await expect(validar('hincha_real_madrid')).resolves.toBeDefined();
+    await expect(validar('hincha_boca_2')).resolves.toBeDefined(); // segunda pose
+    await expect(validar('hincha_central_cordoba_2')).resolves.toBeDefined();
     await expect(validar('pelota')).resolves.toBeDefined();
+    await expect(validar('pelota_2')).rejects.toThrow(BadRequestException); // los clásicos tienen una sola
     await expect(validar(null)).resolves.toBeDefined(); // sin avatar
     await expect(validar('hincha_inventado')).rejects.toThrow(BadRequestException);
     await expect(validar('hincha_instituto')).rejects.toThrow(BadRequestException); // se juntó con Estudiantes
