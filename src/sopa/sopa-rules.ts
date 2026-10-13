@@ -3,7 +3,8 @@ import { mezclar } from '../trivia/trivia-rules';
 // Sopa de letras futbolera. El servidor arma la grilla y guarda dónde está cada palabra; el jugador
 // marca inicio y fin y el servidor verifica. Palabras sin espacios ni Ñ (la grilla usa A-Z).
 
-export type TematicaSopa = 'clubes_argentinos' | 'selecciones' | 'jugadores' | 'estadios' | 'tecnicos';
+export type TematicaSopa =
+  | 'clubes_argentinos' | 'clubes_del_mundo' | 'selecciones' | 'jugadores' | 'estadios' | 'tecnicos' | 'palabras_futboleras';
 export type DificultadSopa = 'facil' | 'medio' | 'dificil';
 
 export const TEMATICAS_SOPA: Record<TematicaSopa, { nombre: string; palabras: string[] }> = {
@@ -11,7 +12,14 @@ export const TEMATICAS_SOPA: Record<TematicaSopa, { nombre: string; palabras: st
     nombre: 'Clubes argentinos',
     palabras: ['BOCA', 'RIVER', 'RACING', 'INDEPENDIENTE', 'HURACAN', 'LANUS', 'BANFIELD', 'TALLERES', 'BELGRANO',
       'COLON', 'UNION', 'ESTUDIANTES', 'GIMNASIA', 'VELEZ', 'TIGRE', 'PLATENSE', 'CENTRAL', 'NEWELLS', 'ARGENTINOS',
-      'SARMIENTO', 'INSTITUTO', 'ATLANTA', 'CHACARITA', 'QUILMES', 'OLIMPO'],
+      'SARMIENTO', 'INSTITUTO', 'ATLANTA', 'CHACARITA', 'QUILMES', 'OLIMPO',
+      // Agregadas por Camila (octubre 2026)
+      'SANLORENZO'],
+  },
+  clubes_del_mundo: {
+    nombre: 'Clubes del mundo',
+    palabras: ['BARCELONA', 'REALMADRID', 'BAYERN', 'DORTMUND', 'BENFICA', 'JUVENTUS', 'LIVERPOOL', 'MANCHESTER',
+      'PARIS', 'FLAMENGO', 'PALMEIRAS', 'PENAROL', 'NACIONAL'],
   },
   selecciones: {
     nombre: 'Selecciones',
@@ -23,17 +31,30 @@ export const TEMATICAS_SOPA: Record<TematicaSopa, { nombre: string; palabras: st
     nombre: 'Jugadores',
     palabras: ['MESSI', 'MARADONA', 'PELE', 'RIQUELME', 'TEVEZ', 'KEMPES', 'BATISTUTA', 'NEYMAR', 'ZIDANE', 'MBAPPE',
       'AGUERO', 'PALERMO', 'CRUYFF', 'RONALDO', 'ROMARIO', 'MODRIC', 'HAALAND', 'SALAH', 'PIRLO', 'TOTTI', 'MALDINI',
-      'HENRY', 'DROGBA', 'FORLAN', 'SUAREZ', 'CAVANI', 'MASCHERANO'],
+      'HENRY', 'DROGBA', 'FORLAN', 'SUAREZ', 'CAVANI', 'MASCHERANO',
+      // Agregadas por Camila (octubre 2026)
+      'BECKENBAUER', 'BOCHINI', 'DESTEFANO', 'FRANCESCOLI', 'MATTHAUS', 'PLATINI', 'RONALDINHO', 'VALDERRAMA', 'ZAMORANO'],
   },
   estadios: {
     nombre: 'Estadios',
     palabras: ['BOMBONERA', 'MONUMENTAL', 'MARACANA', 'WEMBLEY', 'ANFIELD', 'CENTENARIO', 'AZTECA', 'BERNABEU',
-      'MESTALLA', 'CILINDRO', 'GASOMETRO', 'LUZHNIKI', 'MINEIRAO', 'MORUMBI'],
+      'MESTALLA', 'CILINDRO', 'GASOMETRO', 'LUZHNIKI', 'MINEIRAO', 'MORUMBI',
+      // Agregadas por Camila (octubre 2026)
+      'ATANASIO', 'CAMPNOU', 'SANSIRO'],
   },
   tecnicos: {
     nombre: 'Directores técnicos',
     palabras: ['BIELSA', 'BILARDO', 'MENOTTI', 'SCALONI', 'GALLARDO', 'SIMEONE', 'BIANCHI', 'PEKERMAN', 'SABELLA',
       'GUARDIOLA', 'MOURINHO', 'ANCELOTTI', 'KLOPP', 'FERGUSON', 'BASILE', 'POCHETTINO'],
+  },
+  palabras_futboleras: {
+    nombre: 'Palabras futboleras',
+    palabras: ['ARBITRO', 'ARQUERO', 'AMONESTACION', 'BALON', 'BANQUILLO', 'BOTINES', 'CABEZAZO', 'CAMISETA', 'CANCHA',
+      'CAPITAN', 'CHILENA', 'CLASICO', 'CORNER', 'DEFENSA', 'DELANTERO', 'EMPATE', 'ENGANCHE', 'ESPINILLERAS', 'EXTREMO',
+      'FALTA', 'GAMBETA', 'GOLEADA', 'GOLEADOR', 'GUARDAMETA', 'GUANTES', 'HINCHA', 'LATERAL', 'LIBERO', 'LIBERTADORES',
+      'MEDIOCAMPISTA', 'OFFSIDE', 'PARED', 'PENAL', 'PENALES', 'PELOTA', 'PIVOTE', 'PORTERO', 'POSTE', 'RABONA',
+      'SILBATO', 'SOMBRERITO', 'STOPPER', 'SUPLENTE', 'TACOS', 'TARJETA', 'TITULAR', 'TRAVESANO', 'TRIBUNA', 'TROFEO',
+      'VOLEA'],
   },
 };
 
