@@ -309,7 +309,8 @@ prisma/
 ## Memotest (`src/memotest/`)
 
 - Pares de **texto con íconos propios** (sin escudos ni logos con derechos): clubes y apodos, jugadores y
-  selecciones, estadios y clubes (`memotest-rules.ts`). Niveles: 6/8/10 pares, 2/3/4 minutos.
+  selecciones, estadios y clubes, jugadores y apodos, selecciones y apodos (`memotest-rules.ts`; **si agregás un tema,
+  sumalo también en `src/api/memotest.ts` del frontend**). Niveles: 6/8/10 pares, 2/3/4 minutos.
 - `POST /memotest {tema, nivel}` → sólo la cantidad de cartas (**el mazo queda en `matches.state`**).
   `POST /memotest/:id/voltear {carta}` revela esa carta; con la segunda dice si es par. `POST /memotest/:id/rendirse`.
 - Puntos al completar: base (60/90/120) + 5 por cada movimiento por debajo de 2×pares + hasta 40 por rapidez.
