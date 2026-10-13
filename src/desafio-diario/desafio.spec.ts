@@ -18,8 +18,21 @@ describe('reglas del desafío del día', () => {
     expect(t).toContain('12/10/2026');
     expect(t).toContain('🟩🟥🟩⬛🟩 3/5');
     expect(t).toContain('Racha: 4 días');
-    const preguntas = preguntasDelDia('2026-10-12').map((p) => preguntaPorId(p.id));
-    for (const p of preguntas) expect(t).not.toContain(p.correcta);
+    // Sin spoilers: el texto es exactamente fecha, cuadritos con aciertos y racha (nada de preguntas ni
+    // respuestas). Se compara el texto entero porque buscar cada respuesta suelta falla con respuestas
+    // cortas como "5", que aparecen en el "3/5" sin ser un spoiler.
+    expect(t.split('\n')).toEqual([
+      'Corta La Bocha ⚽ Desafío del día 12/10/2026',
+      '🟩🟥🟩⬛🟩 3/5',
+      '🔥 Racha: 4 días',
+    ]);
+    // Y las respuestas más largas (nombres, años, clubes) tampoco aparecen en ningún otro día
+    for (const dia of ['2026-10-12', '2026-10-13', '2026-10-14']) {
+      const texto = textoCompartir(dia, 'VVVVV', 5, 1);
+      for (const p of preguntasDelDia(dia).map((q) => preguntaPorId(q.id))) {
+        if (p.correcta.length > 3) expect(texto).not.toContain(p.correcta);
+      }
+    }
   });
 
   it('cambia a medianoche de Argentina', () => {
