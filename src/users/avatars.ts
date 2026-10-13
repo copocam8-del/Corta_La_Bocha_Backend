@@ -55,6 +55,10 @@ export const CLUB_AVATAR_IDS = [
   'hincha_velez',
 ] as const;
 
-export const AVATAR_IDS = [...BASE_AVATAR_IDS, ...CLUB_AVATAR_IDS] as const;
+// Segunda pose de cada hincha (festejando con los brazos arriba): mismo club, id con "_2" al final.
+// Entra en VARCHAR 30: el id más largo queda en 24 caracteres.
+export const CLUB_AVATAR_IDS_2 = CLUB_AVATAR_IDS.map((id) => `${id}_2` as const);
+
+export const AVATAR_IDS = [...BASE_AVATAR_IDS, ...CLUB_AVATAR_IDS, ...CLUB_AVATAR_IDS_2] as const;
 
 export type AvatarId = (typeof AVATAR_IDS)[number];
