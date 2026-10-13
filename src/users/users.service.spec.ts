@@ -2,15 +2,18 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { ConfigService } from '@nestjs/config';
 
 describe('UsersService', () => {
   let service: UsersService;
   const prisma = { users: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() } };
+  const env: Record<string, string | undefined> = {};
+  const config = { get: (k: string) => env[k] };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersService, { provide: PrismaService, useValue: prisma }],
+      providers: [UsersService, { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config }],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
@@ -63,5 +66,22 @@ describe('UsersService', () => {
   it('devuelve 404 si el usuario no existe', async () => {
     prisma.users.findUnique.mockResolvedValue(null);
     await expect(service.findPublic('no-existe')).rejects.toThrow(NotFoundException);
+  });
+
+  describe('isAdmin en /users/me', () => {
+    beforeEach(() => prisma.users.findUnique.mockResolvedValue({ id: 'u1', email: 'Cami@Mail.com' }));
+    afterEach(() => delete env.ADMIN_EMAILS);
+
+    it('true si su email está en ADMIN_EMAILS (sin distinguir mayúsculas ni espacios)', async () => {
+      env.ADMIN_EMAILS = 'otro@mail.com, cami@mail.com ';
+      expect(await service.findOwn('u1')).toMatchObject({ isAdmin: true });
+    });
+
+    it('false si no está o si no hay variable', async () => {
+      env.ADMIN_EMAILS = 'otro@mail.com';
+      expect(await service.findOwn('u1')).toMatchObject({ isAdmin: false });
+      delete env.ADMIN_EMAILS;
+      expect(await service.findOwn('u1')).toMatchObject({ isAdmin: false });
+    });
   });
 });

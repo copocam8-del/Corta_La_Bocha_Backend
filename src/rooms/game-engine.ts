@@ -368,6 +368,30 @@ export class GameEngine {
     return [...room.players.values()].filter((p) => !p.left);
   }
 
+  // Para el panel de administración: salas con alguien conectado, cuántas están en partida y
+  // jugadores conectados AHORA, por juego (sólo números, nada de los jugadores)
+  liveSummary() {
+    const porJuego: Record<string, { salas: number; jugando: number; conectados: number }> = {};
+    let salas = 0;
+    let jugando = 0;
+    let conectados = 0;
+    for (const room of this.rooms.values()) {
+      const enLinea = [...room.players.values()].filter((p) => p.connected && !p.left).length;
+      if (enLinea === 0) continue;
+      const enPartida = IN_GAME.includes(room.phase);
+      const j = (porJuego[room.game] ??= { salas: 0, jugando: 0, conectados: 0 });
+      j.salas++;
+      j.conectados += enLinea;
+      salas++;
+      conectados += enLinea;
+      if (enPartida) {
+        j.jugando++;
+        jugando++;
+      }
+    }
+    return { salas, jugando, conectados, porJuego };
+  }
+
   private connectedPlayers(room: Room) {
     return this.activePlayers(room).filter((p) => p.connected);
   }

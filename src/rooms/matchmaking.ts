@@ -55,6 +55,11 @@ export class Matchmaking {
     private readonly log: (msg: string) => void = () => {},
   ) {}
 
+  // Cuántos esperan en la cola pública ahora (para el panel de administración)
+  get waiting(): number {
+    return this.bucketOf.size;
+  }
+
   join(user: QueueEntry, tematica: string, size: string, game: string = 'tutti_frutti'): { ok: true } | { ok: false; error: string } {
     if (!isMultiGame(game)) return { ok: false, error: 'Juego inválido.' };
     const def = MODES[game];
