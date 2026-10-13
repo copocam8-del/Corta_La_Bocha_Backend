@@ -159,7 +159,9 @@ export class RoomsService implements RoomStore {
    * Termina una partida multijugador (de cualquier juego): estadísticas generales y del juego, ELO,
    * ligas y logros de todos (una sola vez). Si en Tutti Frutti la IA no pudo validar alguna
    * respuesta (countsForStats = false), la partida se cierra pero no cuenta, igual que en la partida
-   * contra la máquina. Quien abandonó cuenta como partida perdida.
+   * contra la máquina. Quien abandonó cuenta como partida perdida. Un empate en el primer puesto
+   * NO es victoria (won = false: suma la partida, corta la racha y no da logros de ganar); en el
+   * ELO, entre los que empataron cuenta 0,5. Cómo terminó queda en matches.state.resultado.
    */
   async finishMatch(
     matchId: string,
@@ -173,7 +175,7 @@ export class RoomsService implements RoomStore {
       // Se termina una sola vez (evita sumar dos veces las estadísticas)
       const claimed = await tx.matches.updateMany({
         where: { id: matchId, status: 'in_progress' },
-        data: { status: 'finished', finished_at: new Date() },
+        data: { status: 'finished', finished_at: new Date(), state: { resultado: resumenResultado(results) } },
       });
       if (claimed.count === 0) return;
       await tx.rooms.update({ where: { id: roomId }, data: { status: 'waiting' } });
@@ -224,4 +226,13 @@ export class RoomsService implements RoomStore {
       maxPlayers: room.max_players,
     };
   }
+}
+
+// Cómo terminó la partida (se guarda en matches.state; sin columnas nuevas): ganador, empate
+// (con quiénes) o sin ganador (nadie sumó puntos)
+export function resumenResultado(results: FinalPlayerResult[]) {
+  const empatados = results.filter((r) => r.result === 'draw').map((r) => r.userId);
+  const ganador = results.find((r) => r.won)?.userId ?? null;
+  if (empatados.length) return { tipo: 'empate', empatados };
+  return ganador ? { tipo: 'ganador', ganador } : { tipo: 'sin_ganador' };
 }

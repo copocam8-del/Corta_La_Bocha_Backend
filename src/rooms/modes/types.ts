@@ -64,10 +64,15 @@ export interface StoredRoom {
 
 export type GameExtra = Record<string, number | boolean | string>;
 
+// Cómo le fue a cada uno: ganó (único con más puntos), empató arriba (dos o más con los mismos puntos
+// más altos: nadie gana) o perdió (todos los demás, y los que abandonaron)
+export type MatchOutcome = 'win' | 'draw' | 'loss';
+
 export interface FinalPlayerResult {
   userId: string;
   points: number;
-  won: boolean;
+  won: boolean; // sólo con 'win': un empate NO es victoria
+  result?: MatchOutcome;
   abandoned: boolean;
   extra?: GameExtra; // datos de la partida para los logros del juego (ej. errores en el ahorcado)
 }

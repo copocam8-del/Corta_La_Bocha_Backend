@@ -44,6 +44,16 @@ describe('ELO', () => {
     expect(r).toEqual({ a: 1000, b: 1000 });
   });
 
+  it('empate en el primer puesto: 0,5 entre los empatados y victoria contra el de abajo', () => {
+    const r = eloMultiplayer([
+      { userId: 'a', elo: 1000, points: 50, abandoned: false },
+      { userId: 'b', elo: 1000, points: 50, abandoned: false },
+      { userId: 'c', elo: 1000, points: 10, abandoned: false },
+    ]);
+    // a: (0,5 − 0,5) contra b + (1 − 0,5) contra c = 0,5 → 32 × 0,5 / 2 = +8
+    expect(r).toEqual({ a: 1008, b: 1008, c: 984 });
+  });
+
   it('ganarle a alguien con más ELO suma más', () => {
     const vsFuerte = eloMultiplayer([
       { userId: 'a', elo: 1000, points: 50, abandoned: false },
