@@ -1,7 +1,7 @@
 import { CATEGORIAS_TRIVIA, type CategoriaTrivia, type DificultadTrivia } from '../../trivia/trivia-bank';
 import { elegirPreguntas, GRACIA_MS, prepararPregunta, preguntaPorId, puntosRespuesta, type PreguntaEnJuego } from '../../trivia/trivia-rules';
 import { RoundMode } from './round-mode';
-import { fail, type GameExtra, type ModeDefinition, type Result, type Settings } from './types';
+import { fail, type GameExtra, type ModeDefinition, type ModeDeps, type ModeHost, type Result, type Settings } from './types';
 
 // Trivia multijugador: todos reciben la misma pregunta al mismo tiempo. Suma quien acierta (más
 // cuanto más rápido) y el primero en acertar se lleva un bonus. Cada pregunta es una "ronda".
@@ -38,6 +38,20 @@ interface Respuesta {
 }
 
 class TriviaMode extends RoundMode {
+  private vistos?: Map<string, number>;
+  private jugadores: string[] = [];
+
+  constructor(host: ModeHost, private readonly deps: ModeDeps) {
+    super(host);
+  }
+
+  // Antes de arrancar: lo que vio ALGUNO de los jugadores (una sola consulta)
+  async start() {
+    this.jugadores = this.host.players().map((p) => p.userId);
+    this.vistos = await this.deps.vistos?.leer(this.jugadores, 'trivia');
+    return super.start();
+  }
+
   private preguntas: PreguntaEnJuego[] = [];
   private actual: PreguntaEnJuego | null = null;
   private respuestas = new Map<string, Respuesta>();
@@ -56,7 +70,9 @@ class TriviaMode extends RoundMode {
 
   protected prepareRound() {
     if (this.roundNumber === 1) {
-      this.preguntas = elegirPreguntas(Math.random, filtro(this.host.settings), this.total).map((p) => prepararPregunta(p, Math.random));
+      // Primero las que no vio ninguno de los jugadores; se guardan como vistas para todos (una sola vez)
+      this.preguntas = elegirPreguntas(Math.random, filtro(this.host.settings), this.total, this.vistos).map((p) => prepararPregunta(p, Math.random));
+      void this.deps.vistos?.marcar(this.jugadores, 'trivia', this.preguntas.map((p) => p.id));
     }
     this.actual = this.preguntas[this.roundNumber - 1] ?? null;
     this.respuestas = new Map();
@@ -142,5 +158,5 @@ export const trivia: ModeDefinition = {
     const hay = elegirPreguntas(Math.random, filtro(s), s.rounds).length;
     return hay < s.rounds ? `Con esa categoría y dificultad hay sólo ${hay} preguntas: elegí menos preguntas u otro filtro.` : null;
   },
-  create: (host) => new TriviaMode(host),
+  create: (host, deps) => new TriviaMode(host, deps),
 };

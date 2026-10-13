@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { Server } from 'socket.io';
 import { TuttiFruttiValidatorService } from '../tutti-frutti/tutti-frutti.service';
 import { RoomsService } from './rooms.service';
+import { ContenidoVistoService } from '../games/contenido-visto.service';
 import { GameEngine, type RoomSnapshot } from './game-engine';
 import { Matchmaking, type QueueState } from './matchmaking';
 
@@ -15,12 +16,13 @@ export class MultiplayerService {
   readonly engine: GameEngine;
   readonly queue: Matchmaking;
 
-  constructor(rooms: RoomsService, validator: TuttiFruttiValidatorService) {
+  constructor(rooms: RoomsService, validator: TuttiFruttiValidatorService, vistos: ContenidoVistoService) {
     this.engine = new GameEngine(
       rooms,
       validator,
       { sendState: (userId, state) => this.emitToUser(userId, 'room:state', state) },
       (msg) => this.logger.warn(msg),
+      vistos,
     );
     this.queue = new Matchmaking(
       (userIds, settings, game) => this.engine.createQueueRoom(userIds, settings, game),

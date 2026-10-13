@@ -8,6 +8,7 @@ import { MultiplayerService } from './multiplayer.service';
 import { StatsModule } from '../stats/stats.module';
 import { AchievementsModule } from '../achievements/achievements.module';
 import { TuttiFruttiModule } from '../tutti-frutti/tutti-frutti.module';
+import { GamesModule } from '../games/games.module';
 import { getJwtConfig } from '../auth/jwt.config';
 
 @Module({
@@ -15,6 +16,7 @@ import { getJwtConfig } from '../auth/jwt.config';
     StatsModule,
     AchievementsModule,
     TuttiFruttiModule,
+    GamesModule, // ContenidoVistoService: no repetir preguntas ni palabras
     // Para verificar el token de las conexiones de Socket.IO (mismo secreto que el login)
     JwtModule.registerAsync({
       imports: [ConfigModule],

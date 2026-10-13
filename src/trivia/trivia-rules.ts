@@ -1,4 +1,5 @@
 import { PREGUNTAS, type DificultadTrivia, type Pregunta } from './trivia-bank';
+import { priorizarNoVistos, type Vistos } from '../games/vistos';
 
 // Reglas de la trivia (las usa también el desafío diario). Todo se decide en el servidor.
 
@@ -41,15 +42,18 @@ export function prepararPregunta(p: Pregunta, azar: () => number): PreguntaEnJue
   return { id: p.id, opciones, correcta: opciones.indexOf(p.correcta) };
 }
 
+// Con "vistos" (lo que ya vio el usuario o los jugadores de la sala), primero las que no vio; si no
+// alcanzan, las que vio hace más tiempo. Sin "vistos" (ej. el desafío del día) elige igual que siempre.
 export function elegirPreguntas(
   azar: () => number,
   filtro: { categoria?: string; dificultad?: DificultadTrivia },
   cantidad = PREGUNTAS_POR_PARTIDA,
+  vistos?: Vistos,
 ): Pregunta[] {
   const candidatas = PREGUNTAS.filter(
     (p) => (!filtro.categoria || p.categoria === filtro.categoria) && (!filtro.dificultad || p.dificultad === filtro.dificultad),
   );
-  return mezclar(candidatas, azar).slice(0, cantidad);
+  return priorizarNoVistos(mezclar(candidatas, azar), (p) => p.id, vistos).slice(0, cantidad);
 }
 
 export const preguntaPorId = (id: string) => PREGUNTAS.find((p) => p.id === id)!;

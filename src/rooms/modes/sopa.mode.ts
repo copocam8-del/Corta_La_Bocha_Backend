@@ -3,7 +3,7 @@ import {
   type DificultadSopa, type Sopa, type TematicaSopa,
 } from '../../sopa/sopa-rules';
 import { RoundMode } from './round-mode';
-import { fail, pick, type ModeDefinition, type Result, type Settings } from './types';
+import { fail, pick, type ModeDefinition, type ModeDeps, type ModeHost, type Result, type Settings } from './types';
 
 // Sopa de letras multijugador: misma grilla para todos. Cada palabra cuenta para el PRIMERO que la
 // encuentra (el servidor decide quién llegó primero). Dónde está cada palabra queda en el servidor
@@ -34,7 +34,28 @@ interface Celda {
 }
 
 class SopaMode extends RoundMode {
+  private sopas: Sopa[] = []; // una por ronda, armadas al arrancar
   private sopa: Sopa | null = null;
+
+  constructor(host: ModeHost, private readonly deps: ModeDeps) {
+    super(host);
+  }
+
+  // Al arrancar: lee lo que vio ALGUNO de los jugadores (una consulta), arma las grillas de todas las
+  // rondas (primero palabras que no vio nadie, sin repetir entre grillas) y las guarda (una consulta)
+  async start() {
+    const jugadores = this.host.players().map((p) => p.userId);
+    const vistos = new Map(await this.deps.vistos?.leer(jugadores, 'sopa_de_letras'));
+    const ahora = Date.now();
+    this.sopas = [];
+    for (let r = 0; r < this.total; r++) {
+      const sopa = generarSopa(this.host.settings.tematica as TematicaSopa, this.dificultad, Math.random, vistos);
+      this.sopas.push(sopa);
+      for (const u of sopa.ubicaciones) vistos.set(u.palabra, ahora + r);
+    }
+    void this.deps.vistos?.marcar(jugadores, 'sopa_de_letras', this.sopas.flatMap((x) => x.ubicaciones.map((u) => u.palabra)));
+    return super.start();
+  }
   private encontradas = new Map<string, string>(); // palabra → userId
   private revelada: null | { numero: number; todas: { palabra: string; celdas: Celda[]; userId: string | null }[] } = null;
 
@@ -43,7 +64,7 @@ class SopaMode extends RoundMode {
   }
 
   protected prepareRound() {
-    this.sopa = generarSopa(this.host.settings.tematica as TematicaSopa, this.dificultad, Math.random);
+    this.sopa = this.sopas[this.roundNumber - 1];
     this.encontradas = new Map();
     this.revelada = null;
   }
@@ -122,5 +143,5 @@ export const sopa: ModeDefinition = {
   // En la pública la temática se sortea
   publicSettings: () => ({ ...DEFAULTS, tematica: pick(Object.keys(TEMATICAS_SOPA)), dificultad: 'medio', seconds: 240 }),
   queueSizes: ['pocos', 'muchos'],
-  create: (host) => new SopaMode(host),
+  create: (host, deps) => new SopaMode(host, deps),
 };

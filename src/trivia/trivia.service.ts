@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { GameResultsService } from '../games/game-results.service';
+import { ContenidoVistoService } from '../games/contenido-visto.service';
 import { CATEGORIAS_TRIVIA, PREGUNTAS, type CategoriaTrivia, type DificultadTrivia } from './trivia-bank';
 import {
   ACIERTOS_PARA_GANAR, elegirPreguntas, GRACIA_MS, prepararPregunta, preguntaPorId, puntosRespuesta,
@@ -18,7 +19,10 @@ const ABANDONO_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class TriviaService {
-  constructor(private readonly results: GameResultsService) {}
+  constructor(
+    private readonly results: GameResultsService,
+    private readonly vistos: ContenidoVistoService,
+  ) {}
 
   categorias() {
     return CATEGORIAS_TRIVIA.map((c) => ({ id: c, preguntas: PREGUNTAS.filter((p) => p.categoria === c).length }));
@@ -26,7 +30,9 @@ export class TriviaService {
 
   async empezar(userId: string, filtro: { categoria?: CategoriaTrivia; dificultad?: DificultadTrivia }, azar = Math.random) {
     await this.results.closeAbandoned(userId, 'trivia', ABANDONO_MS);
-    const elegidas = elegirPreguntas(azar, filtro);
+    // Primero las preguntas que no vio (con esos filtros); al agotarlas vuelve a empezar
+    const vistos = await this.vistos.leer([userId], 'trivia');
+    const elegidas = elegirPreguntas(azar, filtro, undefined, vistos);
     if (elegidas.length < 5) throw new BadRequestException('No hay suficientes preguntas con ese filtro.');
     const estado: EstadoTrivia = {
       preguntas: elegidas.map((p) => prepararPregunta(p, azar)),
@@ -35,6 +41,7 @@ export class TriviaService {
       respuestas: [],
     };
     const match = await this.results.createMatch(userId, 'trivia', { ...estado }, filtro.dificultad ?? 'mixta');
+    await this.vistos.marcar([userId], 'trivia', elegidas.map((p) => p.id));
     return { matchId: match.id, total: estado.preguntas.length, puntos: 0, aciertos: 0, pregunta: this.pregunta(estado) };
   }
 

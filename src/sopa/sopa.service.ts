@@ -1,5 +1,6 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { GameResultsService } from '../games/game-results.service';
+import { ContenidoVistoService } from '../games/contenido-visto.service';
 import {
   buscarPalabra, celdasDe, celdasDeLinea, CONFIG_SOPA, generarSopa, GRACIA_MS, puntosSopa, TEMATICAS_SOPA,
   type DificultadSopa, type Sopa, type TematicaSopa,
@@ -22,7 +23,10 @@ const ABANDONO_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class SopaService {
-  constructor(private readonly results: GameResultsService) {}
+  constructor(
+    private readonly results: GameResultsService,
+    private readonly vistos: ContenidoVistoService,
+  ) {}
 
   tematicas() {
     return Object.entries(TEMATICAS_SOPA).map(([id, t]) => ({ id, nombre: t.nombre }));
@@ -30,8 +34,12 @@ export class SopaService {
 
   async empezar(userId: string, tematica: TematicaSopa, dificultad: DificultadSopa, azar = Math.random) {
     await this.results.closeAbandoned(userId, 'sopa_de_letras', ABANDONO_MS);
-    const estado: EstadoSopa = { tematica, dificultad, sopa: generarSopa(tematica, dificultad, azar), encontradas: [], inicio: Date.now() };
+    // Primero las palabras que no vio (de esa temática); al agotarlas vuelve a empezar
+    const vistos = await this.vistos.leer([userId], 'sopa_de_letras');
+    const sopa = generarSopa(tematica, dificultad, azar, vistos);
+    const estado: EstadoSopa = { tematica, dificultad, sopa, encontradas: [], inicio: Date.now() };
     const match = await this.results.createMatch(userId, 'sopa_de_letras', { ...estado }, dificultad);
+    await this.vistos.marcar([userId], 'sopa_de_letras', sopa.ubicaciones.map((u) => u.palabra));
     return this.vista(match.id, estado);
   }
 
