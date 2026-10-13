@@ -1,8 +1,8 @@
 import { NotFoundException, UnauthorizedException, type ExecutionContext } from '@nestjs/common';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
-import { ThrottlerGuard } from '@nestjs/throttler';
 import { AdminGuard } from './admin.guard';
 import { AdminController } from './admin.controller';
+import { AdminThrottlerGuard } from './admin-throttler.guard';
 import { isAdminEmail, parseAdminEmails } from './admin-access';
 
 describe('acceso al panel de administración', () => {
@@ -57,7 +57,7 @@ describe('acceso al panel de administración', () => {
 
   it('el controller usa límite → sesión → admin, con 30 pedidos por minuto, y sólo GET', () => {
     const guards = Reflect.getMetadata(GUARDS_METADATA, AdminController) as unknown[];
-    expect(guards[0]).toBe(ThrottlerGuard);
+    expect(guards[0]).toBe(AdminThrottlerGuard);
     expect(guards[2]).toBe(AdminGuard);
     expect(guards).toHaveLength(3);
     const limite = Reflect.getMetadata('THROTTLER:LIMITdefault', AdminController);
@@ -66,5 +66,12 @@ describe('acceso al panel de administración', () => {
     for (const m of metodos) {
       expect([m, Reflect.getMetadata('method', AdminController.prototype[m as keyof AdminController])]).toEqual([m, 0]); // 0 = GET
     }
+  });
+
+  it('el límite cuenta todo /admin junto (no cada endpoint por separado)', () => {
+    const g = Object.create(AdminThrottlerGuard.prototype) as { generateKey: (c: unknown, t: string, n: string) => string };
+    const ctx = (handler: string) => ({ getClass: () => AdminController, getHandler: () => ({ name: handler }) });
+    expect(g.generateKey(ctx('usuarios'), '1.2.3.4', 'default')).toBe(g.generateKey(ctx('contenido'), '1.2.3.4', 'default'));
+    expect(g.generateKey(ctx('usuarios'), '1.2.3.4', 'default')).not.toBe(g.generateKey(ctx('usuarios'), '5.6.7.8', 'default'));
   });
 });

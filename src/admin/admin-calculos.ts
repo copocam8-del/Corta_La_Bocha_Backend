@@ -112,8 +112,8 @@ export interface ItemContenido {
   porcentaje: number;
 }
 
-// Preguntas de la trivia: más falladas (menor % de acierto) y más acertadas. Sólo las que se
-// respondieron al menos MIN_VECES veces.
+// Preguntas de la trivia: más falladas (menos de 50% de acierto, de menor a mayor) y más acertadas
+// (50% o más). Así una pregunta nunca está en las dos listas. Sólo las respondidas MIN_VECES veces o más.
 export function rankingPreguntas(
   filas: { id: string; veces: number; aciertos: number }[],
   textoDe: (id: string) => string | undefined,
@@ -122,8 +122,8 @@ export function rankingPreguntas(
   const items = filas
     .filter((f) => f.veces >= MIN_VECES)
     .map((f) => ({ id: f.id, texto: textoDe(f.id) ?? f.id, veces: f.veces, porcentaje: porcentaje(f.aciertos, f.veces) }));
-  const masFalladas = [...items].sort((a, b) => a.porcentaje - b.porcentaje || b.veces - a.veces).slice(0, limite);
-  const masAcertadas = [...items].sort((a, b) => b.porcentaje - a.porcentaje || b.veces - a.veces).slice(0, limite);
+  const masFalladas = items.filter((p) => p.porcentaje < 50).sort((a, b) => a.porcentaje - b.porcentaje || b.veces - a.veces).slice(0, limite);
+  const masAcertadas = items.filter((p) => p.porcentaje >= 50).sort((a, b) => b.porcentaje - a.porcentaje || b.veces - a.veces).slice(0, limite);
   return { masFalladas, masAcertadas };
 }
 

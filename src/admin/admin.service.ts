@@ -143,7 +143,7 @@ export class AdminService {
       respuestasEvaluadas: n(respuestas?.evaluadas),
       porcentajeValidas: porcentaje(n(respuestas?.validas), n(respuestas?.evaluadas)),
       gastoEstimadoUsd: Math.round(validadas * COSTO_IA_POR_PARTIDA * 100) / 100,
-      notaGasto: `Estimado: US$ ${COSTO_IA_POR_PARTIDA.toFixed(2)} por partida validada. El gasto real está en la consola del proveedor.`,
+      notaGasto: `Estimado: US$ ${COSTO_IA_POR_PARTIDA.toFixed(2).replace('.', ',')} por partida validada. El gasto real está en la consola del proveedor.`,
     };
   }
 

@@ -1,8 +1,9 @@
 import { BadRequestException, Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { AuthGuard } from '@nestjs/passport';
-import { Throttle, ThrottlerGuard } from '@nestjs/throttler';
+import { Throttle } from '@nestjs/throttler';
 import { AdminService } from './admin.service';
 import { AdminGuard } from './admin.guard';
+import { AdminThrottlerGuard } from './admin-throttler.guard';
 import { isPeriodoAdmin, type PeriodoAdmin } from './admin-calculos';
 
 function periodo(p?: string): PeriodoAdmin {
@@ -12,9 +13,9 @@ function periodo(p?: string): PeriodoAdmin {
 }
 
 // Panel de administración del equipo. SÓLO LECTURA (todos GET).
-// Orden de los guards: límite de pedidos → sesión (401) → admin (404 si no lo es).
+// Orden de los guards: límite de pedidos (30/min para todo /admin) → sesión (401) → admin (404 si no lo es).
 @Throttle({ default: { ttl: 60_000, limit: 30 } })
-@UseGuards(ThrottlerGuard, AuthGuard('jwt'), AdminGuard)
+@UseGuards(AdminThrottlerGuard, AuthGuard('jwt'), AdminGuard)
 @Controller('admin')
 export class AdminController {
   constructor(private readonly admin: AdminService) {}

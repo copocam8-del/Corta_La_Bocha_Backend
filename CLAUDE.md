@@ -388,7 +388,7 @@ prisma/
   - **IA**: una partida de Tutti Frutti cuenta "sin validar" si alguna respuesta quedó `unverified`; % de válidas sobre
     respuestas escritas que la IA evaluó. **Gasto = partidas validadas × US$ 0,01 (estimado**; el real está en la
     consola del proveedor). Se muestra `AI_PROVIDER` y el modelo, nunca la clave.
-  - **Contenido**: preguntas (trivia sola + desafío del día, desde `matches.state`), palabras del ahorcado solo (% de
+  - **Contenido**: preguntas (trivia sola + desafío del día, desde `matches.state`; "más falladas" < 50% de acierto, "más acertadas" ≥ 50%), palabras del ahorcado solo (% de
     derrotas, desde `matches.state` + `match_results`), temáticas de sopa y temas de memotest (`matches.tematica` o el
     estado) y letras del Tutti Frutti (`rounds.letter`). Los rankings piden al menos 3 veces (`MIN_VECES`).
   - **No se guarda** (y el panel lo dice): preguntas/respuestas de la trivia multijugador y palabras del ahorcado

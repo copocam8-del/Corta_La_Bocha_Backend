@@ -71,7 +71,9 @@ describe('panel de administración: cuentas', () => {
       ],
       (id) => ({ a: '¿Pregunta A?' })[id],
     );
-    expect(r.masFalladas.map((p) => [p.id, p.porcentaje, p.veces])).toEqual([['a', 20, 10], ['d', 60, 5], ['b', 100, 4]]);
+    // Menos de 50% = falladas; 50% o más = acertadas (nunca en las dos)
+    expect(r.masFalladas.map((p) => [p.id, p.porcentaje, p.veces])).toEqual([['a', 20, 10]]);
+    expect(r.masAcertadas.map((p) => [p.id, p.porcentaje])).toEqual([['b', 100], ['d', 60]]);
     expect(r.masAcertadas[0]).toEqual({ id: 'b', texto: 'b', veces: 4, porcentaje: 100 });
     expect(r.masFalladas[0].texto).toBe('¿Pregunta A?');
   });
