@@ -3,7 +3,8 @@ import { mezclar } from '../trivia/trivia-rules';
 // Memotest futbolero: pares de cartas de TEXTO con íconos propios (nada de escudos ni logos reales).
 // El servidor guarda el mazo boca abajo y revela cada carta cuando el jugador la da vuelta.
 
-export type TemaMemotest = 'clubes_apodos' | 'jugadores_selecciones' | 'estadios_clubes';
+export type TemaMemotest =
+  | 'clubes_apodos' | 'jugadores_selecciones' | 'estadios_clubes' | 'jugadores_apodos' | 'selecciones_apodos';
 export type NivelMemotest = 'facil' | 'medio' | 'dificil';
 // Ícono que dibuja el frontend para cada lado del par
 export type IconoCarta = 'escudo' | 'apodo' | 'jugador' | 'bandera' | 'estadio';
@@ -18,6 +19,9 @@ export const TEMAS_MEMOTEST: Record<TemaMemotest, { nombre: string; iconos: [Ico
       ["Newell's Old Boys", 'La Lepra'], ['Rosario Central', 'El Canalla'], ['Vélez Sarsfield', 'El Fortín'], ['Lanús', 'El Granate'],
       ['Banfield', 'El Taladro'], ['Argentinos Juniors', 'El Bicho'], ['Belgrano', 'El Pirata'], ['Colón', 'El Sabalero'],
       ['Tigre', 'El Matador'], ['Unión', 'El Tatengue'],
+      // Agregadas por Camila (octubre 2026)
+      ['Juventus', 'Vecchia Signora'], ['Inter', 'Nerazzurri'], ['Manchester City', 'Citizens'], ['Arsenal', 'Gunners'],
+      ['Chelsea', 'Blues'],
     ],
   },
   jugadores_selecciones: {
@@ -40,6 +44,28 @@ export const TEMAS_MEMOTEST: Record<TemaMemotest, { nombre: string; iconos: [Ico
       ['José Amalfitani', 'Vélez Sarsfield'], ['Camp Nou', 'Barcelona'], ['Santiago Bernabéu', 'Real Madrid'],
       ['Old Trafford', 'Manchester United'], ['Anfield', 'Liverpool'], ['Allianz Arena', 'Bayern Múnich'],
       ['Signal Iduna Park', 'Borussia Dortmund'], ['Metropolitano', 'Atlético de Madrid'],
+      // Agregadas por Camila (octubre 2026)
+      ['San Siro', 'Milan'], ['Maracaná', 'Flamengo'], ['Campeón del Siglo', 'Peñarol'],
+    ],
+  },
+  // Temas nuevos (octubre 2026, de Camila)
+  jugadores_apodos: {
+    nombre: 'Jugadores y apodos',
+    iconos: ['jugador', 'apodo'],
+    pares: [
+      ['Lionel Messi', 'La Pulga'], ['Diego Maradona', 'El Pelusa'], ['Ronaldo Nazário', 'El Fenómeno'],
+      ['Johan Cruyff', 'El Holandés Volador'], ['Franz Beckenbauer', 'El Káiser'], ['Gabriel Batistuta', 'Batigol'],
+      ['Carlos Valderrama', 'El Pibe'], ['Enzo Francescoli', 'El Príncipe'], ['Javier Zanetti', 'El Tractor'],
+      ['Ángel Di María', 'Fideo'], ['Sergio Agüero', 'Kun'],
+    ],
+  },
+  selecciones_apodos: {
+    nombre: 'Selecciones y apodos',
+    iconos: ['bandera', 'apodo'],
+    pares: [
+      ['Argentina', 'La Albiceleste'], ['Brasil', 'La Canarinha'], ['Uruguay', 'La Celeste'], ['España', 'La Roja'],
+      ['Francia', 'Les Bleus'], ['Italia', 'La Azzurra'], ['Alemania', 'Die Mannschaft'],
+      ['Países Bajos', 'La Naranja Mecánica'], ['Colombia', 'La Tricolor'], ['México', 'El Tri'],
     ],
   },
 };
