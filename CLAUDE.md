@@ -303,7 +303,8 @@ prisma/
 - Fácil 10×10, 6 palabras, horizontal/vertical, 3 min; medio 12×12, 8, + diagonales, 4 min; difícil 14×14, 10, en
   las 8 direcciones (también al revés), 5 min. Puntos: 5 + largo por palabra, +30 y +1 cada 3 s sobrantes si las
   encuentra todas, × 1 / 1,3 / 1,6. Ganar = encontrarlas todas a tiempo (el servidor mide el tiempo).
-- Palabras en `sopa-rules.ts` (`TEMATICAS_SOPA`): sólo A-Z, sin espacios ni Ñ. Logros: `sopa_relampago`, `sopa_dificil`, `sopa_diez`.
+- Palabras en `sopa-rules.ts` (`TEMATICAS_SOPA`, 7 temáticas; **si agregás una, sumala también en `src/api/sopa.ts` del
+  frontend**): sólo A-Z, sin espacios ni Ñ, de 4 a 14 letras. Logros: `sopa_relampago`, `sopa_dificil`, `sopa_diez`.
 
 ## Memotest (`src/memotest/`)
 
