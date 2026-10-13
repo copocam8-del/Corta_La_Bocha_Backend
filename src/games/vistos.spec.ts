@@ -191,6 +191,7 @@ describe('multijugador: prioriza lo que no vio NINGUNO de los jugadores', () => 
     await vistos.marcar(['b'], 'trivia', reglamento.slice(reglamento.length - 8, reglamento.length - 5));
     const { engine, last } = sala(vistos);
     const res = await engine.createPrivateRoom('a', { tematica: 'Reglamento', rounds: 5, seconds: 10 }, 'trivia');
+    if (!res.ok) throw new Error(res.error);
     for (const u of ['a', 'b']) await engine.join(res.code!, { userId: u });
     vistos.lecturas = vistos.escrituras = 0;
     await engine.start(res.code!, 'a');
@@ -200,7 +201,7 @@ describe('multijugador: prioriza lo que no vio NINGUNO de los jugadores', () => 
     // Las 5 preguntas de la partida son justo las que no vio ninguno
     const textos = new Set<string>();
     for (let i = 0; i < 5; i++) {
-      const v = last.get('a')!.view as { pregunta: { texto: string } };
+      const v = last.get('a')!.view as unknown as { pregunta: { texto: string } };
       textos.add(v.pregunta.texto);
       await engine.action(res.code!, 'a', 'answer', { opcion: 0 });
       await engine.action(res.code!, 'b', 'answer', { opcion: 0 });
@@ -218,6 +219,7 @@ describe('multijugador: prioriza lo que no vio NINGUNO de los jugadores', () => 
     await vistos.marcar(['b'], 'ahorcado', banco.slice(0, banco.length - 3)); // b ya vio casi todas
     const { engine } = sala(vistos);
     const res = await engine.createPrivateRoom('a', { dificultad: 'facil', rounds: 3, seconds: 60 }, 'ahorcado');
+    if (!res.ok) throw new Error(res.error);
     for (const u of ['a', 'b']) await engine.join(res.code!, { userId: u });
     await engine.start(res.code!, 'a');
     const elegidas = vistos.marcar.mock.calls.at(-1)![2];
