@@ -61,7 +61,9 @@ describe('AhorcadoService', () => {
     }),
     finish: jest.fn(async () => ({ newAchievements: [], gameStats: {} })),
   };
-  const service = new AhorcadoService(results as never);
+  // Sin nada visto: elige como siempre (los tests de no repetir están en games/vistos.spec.ts)
+  const sinVistos = { leer: jest.fn(async () => new Map<string, number>()), marcar: jest.fn(async () => undefined) };
+  const service = new AhorcadoService(results as never, sinVistos as never);
   const primera = () => 0; // elige la primera palabra de la lista
 
   beforeEach(() => {

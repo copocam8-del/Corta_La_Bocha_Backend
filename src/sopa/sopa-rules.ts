@@ -1,4 +1,5 @@
 import { mezclar } from '../trivia/trivia-rules';
+import { priorizarNoVistos, type Vistos } from '../games/vistos';
 
 // Sopa de letras futbolera. El servidor arma la grilla y guarda dónde está cada palabra; el jugador
 // marca inicio y fin y el servidor verifica. Palabras sin espacios ni Ñ (la grilla usa A-Z).
@@ -85,10 +86,11 @@ export interface Sopa {
   ubicaciones: Ubicacion[];
 }
 
-export function generarSopa(tematica: TematicaSopa, dificultad: DificultadSopa, azar: () => number): Sopa {
+// Con "vistos", primero intenta ubicar las palabras que no se vieron (después las vistas hace más tiempo)
+export function generarSopa(tematica: TematicaSopa, dificultad: DificultadSopa, azar: () => number, vistos?: Vistos): Sopa {
   const { tamano, palabras: cantidad, dirs } = CONFIG_SOPA[dificultad];
   const celdas: (string | null)[][] = Array.from({ length: tamano }, () => Array<string | null>(tamano).fill(null));
-  const candidatas = mezclar(TEMATICAS_SOPA[tematica].palabras.filter((p) => p.length <= tamano), azar);
+  const candidatas = priorizarNoVistos(mezclar(TEMATICAS_SOPA[tematica].palabras.filter((p) => p.length <= tamano), azar), (p) => p, vistos);
   const ubicaciones: Ubicacion[] = [];
 
   for (const palabra of candidatas) {

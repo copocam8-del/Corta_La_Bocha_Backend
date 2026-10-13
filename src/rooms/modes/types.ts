@@ -150,9 +150,17 @@ export interface GameMode {
   onPlayerBack?(userId: string): void;
 }
 
+// Lo visto por cada usuario (ContenidoVistoService): para no repetir preguntas ni palabras.
+// Opcional: sin esto (ej. en los tests del motor) se elige como siempre.
+export interface LectorVistos {
+  leer(userIds: string[], game: MultiGameId): Promise<Map<string, number>>;
+  marcar(userIds: string[], game: MultiGameId, items: string[]): Promise<void>;
+}
+
 export interface ModeDeps {
   store: RoomStore;
   validator: Validator;
+  vistos?: LectorVistos;
 }
 
 export interface ModeDefinition {

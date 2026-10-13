@@ -1,7 +1,8 @@
 import { BANCO, type Dificultad, type Palabra } from '../../ahorcado/ahorcado-bank';
 import { completa, esLetra, letrasDe, MAX_ERRORES, mascara, mismaRespuesta, normalizar, puntos } from '../../ahorcado/ahorcado-rules';
 import { RoundMode } from './round-mode';
-import { fail, pick, type GameExtra, type ModeDefinition, type Result, type Settings } from './types';
+import { fail, type GameExtra, type ModeDefinition, type ModeDeps, type ModeHost, type Result, type Settings } from './types';
+import { elegirUnaNoVista } from '../../games/vistos';
 
 // Ahorcado multijugador: todos adivinan la MISMA palabra a la vez, cada uno con su pelota (sus
 // letras y sus errores). Suma quien la completa: más con menos errores y más rápido, y un bonus
@@ -36,7 +37,7 @@ interface Jugada {
 const errores = (j: Jugada) => j.erradas.length + j.fallidos;
 
 class AhorcadoMode extends RoundMode {
-  private usadas: string[] = [];
+  private palabras: Palabra[] = []; // una por ronda, elegidas al arrancar
   private palabra: Palabra | null = null;
   private jugadas = new Map<string, Jugada>();
   private llegada: string[] = []; // orden en que la completaron
@@ -47,14 +48,32 @@ class AhorcadoMode extends RoundMode {
   } = null;
   private erroresTotales = new Map<string, number>();
 
+  constructor(host: ModeHost, private readonly deps: ModeDeps) {
+    super(host);
+  }
+
   private get dificultad() {
     return this.host.settings.dificultad as Dificultad;
   }
 
+  // Al arrancar: lee lo que vio ALGUNO de los jugadores (una consulta), elige las palabras de todas
+  // las rondas (primero las que no vio nadie, sin repetir en la partida) y las guarda (una consulta)
+  async start() {
+    const jugadores = this.host.players().map((p) => p.userId);
+    const vistos = new Map(await this.deps.vistos?.leer(jugadores, 'ahorcado'));
+    const ahora = Date.now();
+    this.palabras = [];
+    for (let r = 0; r < this.total; r++) {
+      const p = elegirUnaNoVista(BANCO[this.dificultad], (x) => x.texto, Math.random, vistos);
+      this.palabras.push(p);
+      vistos.set(p.texto, ahora + r); // para no repetirla en otra ronda
+    }
+    void this.deps.vistos?.marcar(jugadores, 'ahorcado', this.palabras.map((p) => p.texto));
+    return super.start();
+  }
+
   protected prepareRound() {
-    const lista = BANCO[this.dificultad].filter((p) => !this.usadas.includes(p.texto));
-    this.palabra = pick(lista.length ? lista : BANCO[this.dificultad]);
-    this.usadas.push(this.palabra.texto);
+    this.palabra = this.palabras[(this.roundNumber - 1) % this.palabras.length];
     this.jugadas = new Map();
     this.llegada = [];
     this.revelada = null;
@@ -174,5 +193,5 @@ export const ahorcado: ModeDefinition = {
   validSettings,
   publicSettings: () => ({ ...DEFAULTS }),
   queueSizes: ['pocos', 'muchos'],
-  create: (host) => new AhorcadoMode(host),
+  create: (host, deps) => new AhorcadoMode(host, deps),
 };

@@ -25,15 +25,16 @@ model users {
   is_guest      Boolean   @default(false)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
 
-  profile      profiles?
-  room_players room_players[]
-  votes        votes[]
-  solo_matches matches[]
-  achievements user_achievements[]
-  results      match_results[]
-  game_stats   game_stats[]
-  daily        daily_challenges[]
+  profile         profiles?
+  room_players    room_players[]
+  votes           votes[]
+  solo_matches    matches[]
+  achievements    user_achievements[]
+  results         match_results[]
+  game_stats      game_stats[]
+  daily           daily_challenges[]
   password_resets password_resets[]
+  contenido_visto contenido_visto[]
 }
 
 model profiles {
@@ -153,8 +154,8 @@ model matches {
   // NUNCA se manda entero al navegador.
   state         Json?
 
-  room   rooms?   @relation(fields: [room_id], references: [id], onDelete: SetNull)
-  user   users?   @relation(fields: [user_id], references: [id], onDelete: SetNull)
+  room    rooms?            @relation(fields: [room_id], references: [id], onDelete: SetNull)
+  user    users?            @relation(fields: [user_id], references: [id], onDelete: SetNull)
   rounds  rounds[]
   results match_results[]
   daily   daily_challenges?
@@ -300,4 +301,17 @@ model seasons {
   ends_at   DateTime?
 
   categories categories[]
+}
+
+// Qué preguntas/palabras ya vio cada usuario en cada juego (trivia, ahorcado, sopa de letras), para
+// no repetirlas hasta agotar todas. item_id: id de la pregunta o la palabra. seen_at: la última vez.
+model contenido_visto {
+  user_id String   @db.Uuid
+  game    String   @db.VarChar(30)
+  item_id String   @db.VarChar(80)
+  seen_at DateTime @db.Timestamp(6)
+
+  user users @relation(fields: [user_id], references: [id], onDelete: Cascade)
+
+  @@id([user_id, game, item_id])
 }

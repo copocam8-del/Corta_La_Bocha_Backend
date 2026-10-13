@@ -67,7 +67,9 @@ describe('TriviaService', () => {
     saveState: jest.fn(async (_id: string, s: Record<string, unknown>) => { state = s; }),
     finish: jest.fn(async () => ({ newAchievements: [], gameStats: {} })),
   };
-  const service = new TriviaService(results as never);
+  // Sin nada visto: elige como siempre (los tests de no repetir están en games/vistos.spec.ts)
+  const sinVistos = { leer: jest.fn(async () => new Map<string, number>()), marcar: jest.fn(async () => undefined) };
+  const service = new TriviaService(results as never, sinVistos as never);
   const correctas = () => (state as unknown as { preguntas: { correcta: number }[] }).preguntas.map((p) => p.correcta);
 
   beforeEach(() => { jest.clearAllMocks(); state = null; });

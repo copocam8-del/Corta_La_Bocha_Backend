@@ -316,6 +316,22 @@ prisma/
 - Puntos al completar: base (60/90/120) + 5 por cada movimiento por debajo de 2×pares + hasta 40 por rapidez.
   Si se acaba el tiempo: 5 por par encontrado. Logros: `memotest_elefante`, `memotest_dificil`, `memotest_diez`.
 
+## Que no se repitan preguntas ni palabras
+
+- Trivia, ahorcado y sopa de letras (solos y en multijugador) priorizan lo que el usuario **no vio**. Lo visto se
+  guarda por usuario y juego en la tabla `contenido_visto` (`user_id`, `game`, `item_id`, `seen_at`; migración
+  `20261013140000_contenido_visto`). `item_id`: id de la pregunta, texto de la palabra del ahorcado o palabra de la sopa.
+- `ContenidoVistoService` (`src/games/contenido-visto.service.ts`): `leer(userIds, game)` es UNA consulta (`groupBy`,
+  la última vez que lo vio cualquiera de esos usuarios) y `marcar(userIds, game, items)` es UNA (`INSERT … ON CONFLICT`
+  que actualiza la fecha). Si la base falla, el juego sigue sin priorizar (nunca corta la partida).
+- Reglas en `src/games/vistos.ts`: primero lo no visto (al azar); si no alcanza, lo visto hace más tiempo. Así no se
+  repite nada hasta agotar todo lo que cumple los filtros (categoría/dificultad/temática) y después vuelve a empezar.
+  Sin nada visto se elige exactamente igual que antes.
+- Multijugador: al arrancar la partida, el modo lee lo visto por **todos** los jugadores de la sala juntos (prioriza lo
+  que no vio ninguno), elige todo lo de la partida (todas las palabras del ahorcado y todas las grillas de la sopa) y lo
+  marca como visto para todos. Los modos lo reciben en `deps.vistos` (opcional: sin eso eligen como siempre).
+- El **desafío del día no lo usa**: tiene que ser igual para todos (un test compara con las preguntas de antes).
+
 ## Logros
 
 - Definiciones en `src/achievements/achievements.definitions.ts` (condición = función sobre las estadísticas y la

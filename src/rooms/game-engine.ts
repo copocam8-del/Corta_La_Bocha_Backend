@@ -2,7 +2,7 @@ import type { UnlockedAchievement } from '../achievements/achievements.service';
 import { MODES } from './modes';
 import {
   AUTOSTART_MS, fail, GAME_GRACE_MS, HOST_GRACE_MS, IN_GAME, LOBBY_GRACE_MS, MIN_PLAYERS,
-  type GameMode, type ModeHost, type MultiGameId, type Phase, type PlayerRef, type Result, type RoomStore,
+  type GameMode, type LectorVistos, type ModeHost, type MultiGameId, type Phase, type PlayerRef, type Result, type RoomStore,
   type Settings, type StoredPlayer, type StoredRoom, type Validator,
 } from './modes/types';
 
@@ -110,6 +110,7 @@ export class GameEngine {
     private readonly validator: Validator,
     private readonly output: EngineOutput,
     private readonly log: (msg: string) => void = () => {},
+    private readonly vistos?: LectorVistos,
   ) {}
 
   // Todo lo que toca una sala pasa en fila (una cosa por vez), así dos eventos simultáneos no se pisan
@@ -429,7 +430,7 @@ export class GameEngine {
     room.final = null;
     room.notice = null;
     for (const p of room.players.values()) p.score = 0;
-    room.mode = MODES[room.game].create(this.hostFor(room, matchId), { store: this.store, validator: this.validator });
+    room.mode = MODES[room.game].create(this.hostFor(room, matchId), { store: this.store, validator: this.validator, vistos: this.vistos });
     await room.mode.start();
   }
 

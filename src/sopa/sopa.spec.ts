@@ -69,7 +69,9 @@ describe('SopaService', () => {
     saveState: jest.fn(async (_id: string, s: Record<string, unknown>) => { state = s; }),
     finish: jest.fn(async () => ({ newAchievements: [], gameStats: {} })),
   };
-  const service = new SopaService(results as never);
+  // Sin nada visto: elige como siempre (los tests de no repetir están en games/vistos.spec.ts)
+  const sinVistos = { leer: jest.fn(async () => new Map<string, number>()), marcar: jest.fn(async () => undefined) };
+  const service = new SopaService(results as never, sinVistos as never);
   const ubic = () => (state as unknown as { sopa: { ubicaciones: { palabra: string; f: number; c: number; df: number; dc: number }[] } }).sopa.ubicaciones;
   const fin = (u: { palabra: string; f: number; c: number; df: number; dc: number }) => ({ f: u.f + u.df * (u.palabra.length - 1), c: u.c + u.dc * (u.palabra.length - 1) });
 

@@ -1,5 +1,7 @@
 import { BadRequestException, ConflictException, Injectable } from '@nestjs/common';
 import { GameResultsService } from '../games/game-results.service';
+import { ContenidoVistoService } from '../games/contenido-visto.service';
+import { elegirUnaNoVista } from '../games/vistos';
 import { BANCO, type Dificultad, type Pista } from './ahorcado-bank';
 import { completa, esLetra, MAX_ERRORES, mascara, mismaRespuesta, normalizar, puntos } from './ahorcado-rules';
 
@@ -18,13 +20,17 @@ const ABANDONO_MS = 30 * 60 * 1000;
 
 @Injectable()
 export class AhorcadoService {
-  constructor(private readonly results: GameResultsService) {}
+  constructor(
+    private readonly results: GameResultsService,
+    private readonly vistos: ContenidoVistoService,
+  ) {}
 
   async empezar(userId: string, dificultad: Dificultad, azar = Math.random) {
     // Las que dejó sin terminar hace más de 30 minutos cuentan como perdidas
     await this.results.closeAbandoned(userId, 'ahorcado', ABANDONO_MS);
-    const lista = BANCO[dificultad];
-    const elegida = lista[Math.floor(azar() * lista.length)];
+    // Una palabra que no vio (de esa dificultad); si ya vio todas, la que vio hace más tiempo
+    const vistos = await this.vistos.leer([userId], 'ahorcado');
+    const elegida = elegirUnaNoVista(BANCO[dificultad], (p) => p.texto, azar, vistos);
     const estado: EstadoAhorcado = {
       respuesta: elegida.texto,
       pista: elegida.pista,
@@ -35,6 +41,7 @@ export class AhorcadoService {
       inicio: Date.now(),
     };
     const match = await this.results.createMatch(userId, 'ahorcado', { ...estado }, dificultad);
+    await this.vistos.marcar([userId], 'ahorcado', [elegida.texto]);
     return this.vista(match.id, estado);
   }
 
