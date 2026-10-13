@@ -93,6 +93,10 @@ const MUNDIALES: Fila[] = [
   ['dificil', '¿Quién fue el capitán de Argentina campeona del mundo en 1978?', 'Daniel Passarella', ['Mario Kempes', 'Ubaldo Fillol', 'Osvaldo Ardiles']],
   ['dificil', '¿Quién fue el arquero titular de Argentina campeona en México 1986?', 'Nery Pumpido', ['Ubaldo Fillol', 'Sergio Goycochea', 'Luis Islas']],
   ['medio', '¿Cuántos goles hizo Mario Kempes en la final del Mundial 1978?', '2', ['1', '3', 'Ninguno']],
+  // Agregadas por Camila (octubre 2026)
+  ['facil', '¿En qué año se jugó el primer Mundial?', '1930', ['1926', '1934', '1950']],
+  ['facil', '¿Qué jugador argentino hizo el gol conocido como "La Mano de Dios"?', 'Diego Maradona', ['Mario Kempes', 'Gabriel Batistuta', 'Lionel Messi']],
+  ['medio', '¿En qué estadio se jugó la final del Mundial 2014?', 'Maracaná', ['Morumbi', 'Mineirão', 'Arena Corinthians']],
 ];
 
 const SELECCION: Fila[] = [
@@ -160,6 +164,8 @@ const CLUBES_ARG: Fila[] = [
   ['facil', '¿Qué DT dirigió a River en las Libertadores ganadas en 2015 y 2018?', 'Marcelo Gallardo', ['Ramón Díaz', 'Martín Demichelis', 'Matías Almeyda']],
   ['medio', '¿Qué DT dirigió a Boca en las Libertadores ganadas en 2000, 2001 y 2003?', 'Carlos Bianchi', ['Miguel Ángel Russo', 'Alfio Basile', 'Óscar Tabárez']],
   ['facil', '¿En qué club debutó Diego Maradona en Primera División?', 'Argentinos Juniors', ['Boca Juniors', "Newell's Old Boys", 'River Plate']],
+  // Agregadas por Camila (octubre 2026)
+  ['facil', '¿Cuál de estos estadios está en Argentina?', 'La Bombonera', ['Maracaná', 'Camp Nou', 'Wembley']],
 ];
 
 const INTERNACIONAL: Fila[] = [
@@ -201,6 +207,11 @@ const INTERNACIONAL: Fila[] = [
   ['medio', '¿Cómo le dicen a la selección de Italia?', 'La Azzurra', ['La Celeste', 'Les Bleus', 'La Roja']],
   ['facil', '¿Cómo le dicen a la selección de Francia?', 'Les Bleus', ['La Azzurra', 'La Roja', 'Die Mannschaft']],
   ['facil', '¿Cómo le dicen a la selección de España?', 'La Roja', ['La Celeste', 'Les Bleus', 'La Naranja']],
+  // Agregadas por Camila (octubre 2026)
+  ['facil', '¿En qué ciudad está el estadio San Siro (Giuseppe Meazza)?', 'Milán', ['Roma', 'Turín', 'Nápoles']],
+  ['medio', '¿Qué club alemán ganó el triplete (liga, copa y Champions) en 2012-13 y en 2019-20?', 'Bayern Múnich', ['Borussia Dortmund', 'Bayer Leverkusen', 'RB Leipzig']],
+  ['facil', '¿Qué dos equipos juegan el clásico más famoso de Uruguay?', 'Peñarol y Nacional', ['Nacional y Danubio', 'Peñarol y Defensor', 'Montevideo City y Boston River']],
+  ['facil', '¿Cómo le dicen al trofeo de la Champions League?', 'La Orejona', ['La Copa de Oro', 'La Plateada', 'El Cáliz Europeo']],
 ];
 
 const JUGADORES: Fila[] = [
@@ -240,6 +251,9 @@ const JUGADORES: Fila[] = [
   ['medio', '¿En qué club español jugó Maradona antes de llegar al Napoli?', 'Barcelona', ['Sevilla', 'Real Madrid', 'Valencia']],
   ['dificil', '¿En qué club argentino terminó Maradona su carrera como jugador?', 'Boca Juniors', ["Newell's Old Boys", 'Argentinos Juniors', 'Racing Club']],
   ['medio', '¿En qué club italiano fue ídolo Gabriel Batistuta?', 'Fiorentina', ['Roma', 'Inter', 'Napoli']],
+  // Agregadas por Camila (octubre 2026)
+  ['medio', '¿Con qué apodo se conocía a Johan Cruyff?', 'El Holandés Volador', ['El Káiser', 'La Saeta Rubia', 'El Pelusa']],
+  ['dificil', '¿Qué jugador hizo 91 goles en el año 2012?', 'Lionel Messi', ['Cristiano Ronaldo', 'Gerd Müller', 'Romário']],
 ];
 
 const REGLAMENTO: Fila[] = [
