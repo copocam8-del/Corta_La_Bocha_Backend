@@ -1,5 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { RoomsService } from './rooms.service';
+import { RoomsService, resumenResultado } from './rooms.service';
+import { ACHIEVEMENTS } from '../achievements/achievements.definitions';
 import { PrismaService } from '../prisma/prisma.service';
 import { StatsService } from '../stats/stats.service';
 import { AchievementsService } from '../achievements/achievements.service';
@@ -112,5 +113,50 @@ describe('RoomsService (base del multijugador)', () => {
       data: expect.objectContaining({ room_player_id: 'rp2', is_valid: null, validated_by: 'unverified' }),
     });
     expect(prisma.rounds.update).toHaveBeenCalledWith({ where: { id: 'r1' }, data: expect.objectContaining({ status: 'finished' }) });
+  });
+
+  describe('empate en el primer puesto', () => {
+    const empate = [
+      { userId: 'u1', points: 50, won: false, result: 'draw' as const, abandoned: false },
+      { userId: 'u2', points: 50, won: false, result: 'draw' as const, abandoned: false },
+      { userId: 'u3', points: 10, won: false, result: 'loss' as const, abandoned: false },
+    ];
+
+    it('cuenta como jugada y no como ganada (la racha se corta) y queda guardado como empate', async () => {
+      prisma.matches.updateMany.mockResolvedValue({ count: 1 });
+      await service.finishMatch('m3', 'room3', empate, true, 'trivia');
+      for (const r of empate) {
+        expect(stats.recordMatchResult).toHaveBeenCalledWith(r.userId, { won: false, points: r.points, game: 'trivia' }, prisma);
+        expect(achievements.unlockFor).toHaveBeenCalledWith(r.userId, expect.objectContaining({ mode: 'multiplayer', won: false }), prisma);
+      }
+      // ELO y ligas: won = false para los empatados (el ELO da 0,5 entre los que tienen los mismos puntos)
+      expect(stats.rateMultiplayer).toHaveBeenCalledWith(
+        prisma,
+        'm3',
+        expect.arrayContaining([expect.objectContaining({ userId: 'u1', won: false }), expect.objectContaining({ userId: 'u2', won: false })]),
+        'trivia',
+      );
+      expect(prisma.matches.updateMany).toHaveBeenCalledWith({
+        where: { id: 'm3', status: 'in_progress' },
+        data: expect.objectContaining({ state: { resultado: { tipo: 'empate', empatados: ['u1', 'u2'] } } }),
+      });
+    });
+
+    it('resumen guardado: ganador, empate o sin ganador', () => {
+      expect(resumenResultado(resultados)).toEqual({ tipo: 'ganador', ganador: 'u1' });
+      expect(resumenResultado(empate)).toEqual({ tipo: 'empate', empatados: ['u1', 'u2'] });
+      expect(resumenResultado(resultados.map((r) => ({ ...r, won: false })))).toEqual({ tipo: 'sin_ganador' });
+    });
+
+    it('los logros de ganar en multijugador no se otorgan con empate', () => {
+      const ids = ['campeon_del_barrio', 'ahorcado_multi', 'trivia_multi', 'sopa_multi', 'memotest_multi'];
+      const multi = ACHIEVEMENTS.filter((a) => ids.includes(a.id));
+      expect(multi).toHaveLength(ids.length);
+      for (const a of multi) {
+        const ctx = { matchesPlayed: 5, matchesWon: 1, totalPoints: 200, currentStreak: 0, mode: 'multiplayer' as const, points: 50, game: a.game };
+        expect([a.id, a.isUnlocked({ ...ctx, won: false })]).toEqual([a.id, false]);
+        expect([a.id, a.isUnlocked({ ...ctx, won: true })]).toEqual([a.id, true]);
+      }
+    });
   });
 });

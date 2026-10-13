@@ -2,7 +2,7 @@ import type { UnlockedAchievement } from '../achievements/achievements.service';
 import { MODES } from './modes';
 import {
   AUTOSTART_MS, fail, GAME_GRACE_MS, HOST_GRACE_MS, IN_GAME, LOBBY_GRACE_MS, MIN_PLAYERS,
-  type GameMode, type LectorVistos, type ModeHost, type MultiGameId, type Phase, type PlayerRef, type Result, type RoomStore,
+  type GameMode, type LectorVistos, type MatchOutcome, type ModeHost, type MultiGameId, type Phase, type PlayerRef, type Result, type RoomStore,
   type Settings, type StoredPlayer, type StoredRoom, type Validator,
 } from './modes/types';
 
@@ -33,7 +33,13 @@ export interface EngineOutput {
 export interface FinalResult {
   reason: 'completed' | 'not_enough_players';
   countsForStats: boolean;
-  standings: { userId: string; username: string; points: number; position: number; won: boolean; abandoned: boolean }[];
+  standings: {
+    userId: string; username: string; points: number; position: number;
+    won: boolean; result: MatchOutcome; abandoned: boolean;
+  }[];
+  // Empate en el primer puesto: nadie gana y se muestra "¡Empate!" con los nombres de los empatados
+  empate: boolean;
+  empatados: string[];
   newAchievements: UnlockedAchievement[]; // sólo los del jugador que recibe el estado
 }
 
@@ -527,6 +533,11 @@ export class GameEngine {
 
     const everyone = [...room.players.values()];
     const best = Math.max(0, ...everyone.filter((p) => !p.left).map((p) => p.score));
+    // Arriba: los que no abandonaron con los puntos más altos (si nadie sumó, nadie gana). Si son
+    // dos o más es EMPATE: nadie gana (ni estadísticas de victoria, ni racha, ni logros de ganar).
+    const arriba = new Set(everyone.filter((p) => !p.left && best > 0 && p.score === best).map((p) => p.userId));
+    const empate = arriba.size >= 2;
+    const outcomeOf = (userId: string): MatchOutcome => (!arriba.has(userId) ? 'loss' : empate ? 'draw' : 'win');
     const sorted = everyone.sort((a, b) => Number(a.left) - Number(b.left) || b.score - a.score);
     let lastPoints: number | null = null;
     let lastPosition = 0;
@@ -540,7 +551,8 @@ export class GameEngine {
         username: p.username,
         points: p.score,
         position: lastPosition,
-        won: !p.left && best > 0 && p.score === best,
+        won: outcomeOf(p.userId) === 'win',
+        result: outcomeOf(p.userId),
         abandoned: p.left,
       };
     });
@@ -558,6 +570,7 @@ export class GameEngine {
             userId: s.userId,
             points: s.points,
             won: s.won,
+            result: s.result,
             abandoned: s.abandoned,
             ...(mode?.extraFor?.(s.userId) ? { extra: mode.extraFor(s.userId) } : {}),
           })),
@@ -568,7 +581,8 @@ export class GameEngine {
         this.log(`finishMatch: ${e}`);
       }
     }
-    room.final = { reason, countsForStats, standings, achievements };
+    const empatados = empate ? standings.filter((s) => s.result === 'draw').map((s) => s.username) : [];
+    room.final = { reason, countsForStats, standings, empate, empatados, achievements };
     room.notice = reason === 'not_enough_players' ? 'La partida terminó porque quedaron menos de 2 jugadores.' : null;
     this.broadcast(room);
   }
@@ -607,6 +621,8 @@ export class GameEngine {
             reason: room.final.reason,
             countsForStats: room.final.countsForStats,
             standings: room.final.standings,
+            empate: room.final.empate,
+            empatados: room.final.empatados,
             newAchievements: room.final.achievements[userId] ?? [],
           }
         : null,

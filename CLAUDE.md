@@ -232,8 +232,16 @@ prisma/
   conectados por 20 s → termina (los que no volvieron cuentan como abandono = perdida).
 - Abandonar (botón Volver / `room:leave`) en plena partida = perdida, y a los demás les llega "X abandonó la partida."
   En el memotest, si se va o se desconecta el del turno, pasa al siguiente.
-- Al final, `RoomsService.finishMatch` (una sola vez, en transacción): partidas, victorias (empate en el primer
-  puesto = ganan todos), puntos, rachas, **estadísticas del juego**, ELO, ligas y logros (con `game` y `extra` del modo).
+- Al final, `RoomsService.finishMatch` (una sola vez, en transacción): partidas, victorias, puntos, rachas,
+  **estadísticas del juego**, ELO, ligas y logros (con `game` y `extra` del modo).
+- **Empate en el primer puesto** (dos o más sin abandonar con los mismos puntos más altos, > 0): **nadie gana**. En las
+  posiciones cada uno tiene `result`: `draw` los empatados arriba, `loss` el resto (`win` sólo el único primero) y
+  `won = false` para todos: cuenta como jugada, no como ganada, la racha se corta (igual que el empate contra la
+  máquina) y no da logros de ganar (`campeon_del_barrio`, `*_multi`). En el ELO, entre los que tienen los mismos
+  puntos cuenta 0,5 y contra los de abajo, victoria (`eloMultiplayer`). En `match_results` queda `won = false`; cómo
+  terminó se guarda en `matches.state.resultado` (`{tipo: 'ganador'|'empate'|'sin_ganador', …}`, sin migración).
+  `room:state` del final trae `final.empate` y `final.empatados` (nombres de usuario) para que el frontend muestre
+  "¡Empate!". Un empate más abajo no cambia nada.
   Si la IA no validó algo (Tutti Frutti) o no se jugó ninguna ronda, no cuenta.
 - Cola pública (`matchmaking.ts`): por juego, temática (sólo Tutti Frutti) y tamaño (`pocos` 2–4, `muchos` 5–8; el
   memotest sólo `pocos`); con el mínimo espera 10 s por más y arma la sala con la configuración pública del juego

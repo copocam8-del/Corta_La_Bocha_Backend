@@ -243,8 +243,9 @@ describe('ronda', () => {
     await tick(COLLECT_MS);
     const st = s.state('a');
     expect(st.phase).toBe('finished');
-    expect(st.final!.standings[0]).toMatchObject({ userId: 'a', position: 1, won: true });
-    expect(st.final!.standings[1]).toMatchObject({ userId: 'b', won: false, points: 0 });
+    expect(st.final!.standings[0]).toMatchObject({ userId: 'a', position: 1, won: true, result: 'win' });
+    expect(st.final!.standings[1]).toMatchObject({ userId: 'b', won: false, result: 'loss', points: 0 });
+    expect(st.final).toMatchObject({ empate: false, empatados: [] });
     expect(st.final!.countsForStats).toBe(true);
     expect(st.final!.newAchievements.map((x) => x.id)).toEqual(['campeon_del_barrio']);
     expect(s.state('b').final!.newAchievements).toEqual([]); // cada uno ve sólo los suyos
@@ -266,6 +267,84 @@ describe('ronda', () => {
     expect(s.state('a').lastResult!.incomplete).toBe(true);
     expect(s.state('a').final!.countsForStats).toBe(false);
     expect(s.store.finishMatch).toHaveBeenCalledWith('match1', expect.any(String), expect.any(Array), false, 'tutti_frutti');
+  });
+});
+
+describe('empates', () => {
+  // Juega una ronda: cada uno manda sus respuestas y "a" canta ¡Basta!
+  async function jugar(s: ReturnType<typeof setup>, code: string, respuestas: (L: string) => Record<string, Record<string, string>>) {
+    const L = await arrancar(s, code);
+    const r = respuestas(L);
+    for (const [u, a] of Object.entries(r)) if (u !== 'a') await s.engine.answers(code, u, a);
+    await s.engine.basta(code, 'a', r.a);
+    await tick(COLLECT_MS);
+    return s.state('a').final!;
+  }
+  const fila = (x: { userId: string; position: number; won: boolean; result: string }) => [x.userId, x.position, x.won, x.result];
+
+  it('empate de 2 en el primer puesto: nadie gana, los dos "draw" y la misma posición', async () => {
+    const s = setup();
+    const code = await salaConDos(s);
+    const final = await jugar(s, code, (L) => ({ a: fill(L), b: fill(L) })); // mismas respuestas: mismos puntos
+    expect(final.standings.map(fila)).toEqual([
+      ['a', 1, false, 'draw'],
+      ['b', 1, false, 'draw'],
+    ]);
+    expect(final).toMatchObject({ empate: true, empatados: ['A', 'B'] });
+    expect(s.state('b').final).toMatchObject({ empate: true, empatados: ['A', 'B'] }); // le llega a todos
+    // A la base (estadísticas, ELO, ligas, logros) llega won = false para los dos
+    const enviados = s.store.finishMatch.mock.calls[0] as unknown[];
+    expect((enviados[2] as { userId: string; won: boolean; result: string }[]).map((x) => [x.userId, x.won, x.result])).toEqual([
+      ['a', false, 'draw'],
+      ['b', false, 'draw'],
+    ]);
+  });
+
+  it('empate de 3 arriba: los 3 "draw"; el de abajo pierde', async () => {
+    const s = setup();
+    const code = await salaConDos(s);
+    await s.engine.join(code, { userId: 'c' });
+    await s.engine.join(code, { userId: 'd' });
+    const final = await jugar(s, code, (L) => ({ a: fill(L), b: fill(L), c: fill(L), d: fill('X') }));
+    expect(final.standings.map(fila)).toEqual([
+      ['a', 1, false, 'draw'],
+      ['b', 1, false, 'draw'],
+      ['c', 1, false, 'draw'],
+      ['d', 4, false, 'loss'],
+    ]);
+    expect(final).toMatchObject({ empate: true, empatados: ['A', 'B', 'C'] });
+  });
+
+  it('empate abajo no cambia nada: gana el primero', async () => {
+    const s = setup();
+    const code = await salaConDos(s);
+    await s.engine.join(code, { userId: 'c' });
+    // a pone respuestas que nadie más puso (10 c/u); b y c ponen las mismas (5 c/u)
+    const unicas = (L: string) => Object.fromEntries(CATS.map((c, i) => [c, `${L}solo${i}`]));
+    const final = await jugar(s, code, (L) => ({ a: unicas(L), b: fill(L), c: fill(L) }));
+    expect(final.standings.map(fila)).toEqual([
+      ['a', 1, true, 'win'],
+      ['b', 2, false, 'loss'],
+      ['c', 2, false, 'loss'],
+    ]);
+    expect(final).toMatchObject({ empate: false, empatados: [] });
+  });
+
+  it('si el otro abandonó, no hay empate aunque tenga los mismos puntos', async () => {
+    const s = setup();
+    const code = await salaConDos(s, { rounds: 3, seconds: 30 });
+    const L = await arrancar(s, code);
+    await s.engine.answers(code, 'b', fill(L));
+    await s.engine.basta(code, 'a', fill(L));
+    await tick(COLLECT_MS);
+    await s.engine.leave(code, 'b');
+    await tick(GAME_GRACE_MS);
+    const final = s.state('a').final!;
+    expect(final.standings.map((x) => [x.userId, x.won, x.result])).toEqual([
+      ['a', true, 'win'],
+      ['b', false, 'loss'],
+    ]);
+    expect(final.empate).toBe(false);
   });
 });
 
