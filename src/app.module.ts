@@ -13,6 +13,7 @@ import { TriviaModule } from './trivia/trivia.module';
 import { DesafioModule } from './desafio-diario/desafio.module';
 import { SopaModule } from './sopa/sopa.module';
 import { MemotestModule } from './memotest/memotest.module';
+import { AdminModule } from './admin/admin.module';
 
 @Module({
   imports: [
@@ -30,6 +31,7 @@ import { MemotestModule } from './memotest/memotest.module';
     DesafioModule,
     SopaModule,
     MemotestModule,
+    AdminModule,
   ],
 })
 export class AppModule {} 

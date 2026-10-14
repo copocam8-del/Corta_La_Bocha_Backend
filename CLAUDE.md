@@ -69,6 +69,7 @@ src/
     auth-validation.pipe.ts  ValidationPipe sólo de /auth, errores agrupados por campo
     dto/auth-rules.ts  reglas de registro (largos, regex, edad mínima)
   users/               perfil (/users/me)
+  admin/               panel de administración del equipo (sólo lectura, ADMIN_EMAILS)
   rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
     modes/             un "modo" por juego: tutti-frutti, ahorcado, trivia, sopa, memotest (index.ts = registro)
   solo-matches/        partidas contra la IA
@@ -368,6 +369,31 @@ prisma/
   Sin configurar no manda nada y lo avisa en el log; **fuera de producción el link se imprime en la consola**
   (nunca en producción). `FRONTEND_URL` arma el link (`/restablecer-contrasena?token=…`).
 
+## Panel de administración (`src/admin/`, sólo lectura)
+
+- **Acceso lo decide el backend**: `ADMIN_EMAILS` (mails separados por coma, en minúsculas). `AdminGuard` busca el email
+  del usuario del token **en la base** y lo compara. Orden de guards: `ThrottlerGuard` (30 pedidos/min) →
+  `AuthGuard('jwt')` (sin sesión 401) → `AdminGuard` (no admin o sin variable → **404 igual al de una ruta que no
+  existe**, para no revelar el panel). `GET /users/me` devuelve `isAdmin` (sólo para mostrar el botón).
+- Endpoints (todos GET, `?periodo=hoy|7d|30d|todo`, por defecto `7d`; "hoy" y los días en hora argentina, 7 y 30 días
+  cuentan hoy): `/admin/usuarios`, `/admin/partidas`, `/admin/ia`, `/admin/contenido`.
+- **Nunca** devuelve contraseñas, hashes, tokens, fechas de nacimiento, id de Google ni claves de la IA. De los usuarios:
+  usuario, fecha de alta y si entró con Google; el email sólo en los últimos 20 registros. Un test lo controla.
+- Todo se calcula en la base: una consulta SQL por dato (`AdminService`, cada una con un comentario `/* admin:… */`;
+  los tests verifican que todas sean `SELECT`). Las cuentas que no dependen de la base están en `admin-calculos.ts`.
+- Qué mide cada cosa:
+  - **Activos** = usuarios con una partida solo empezada o una partida que contó (`match_results`) en hoy/7/30 días.
+  - **Salas y conectados AHORA**: del motor en memoria (`GameEngine.liveSummary()`, `Matchmaking.waiting`).
+  - **Abandonadas**: partidas solo con `status = 'abandoned'`; del multijugador, jugadores con `abandoned` en `match_results`.
+  - **IA**: una partida de Tutti Frutti cuenta "sin validar" si alguna respuesta quedó `unverified`; % de válidas sobre
+    respuestas escritas que la IA evaluó. **Gasto = partidas validadas × US$ 0,01 (estimado**; el real está en la
+    consola del proveedor). Se muestra `AI_PROVIDER` y el modelo, nunca la clave.
+  - **Contenido**: preguntas (trivia sola + desafío del día, desde `matches.state`; "más falladas" < 50% de acierto, "más acertadas" ≥ 50%), palabras del ahorcado solo (% de
+    derrotas, desde `matches.state` + `match_results`), temáticas de sopa y temas de memotest (`matches.tematica` o el
+    estado) y letras del Tutti Frutti (`rounds.letter`). Los rankings piden al menos 3 veces (`MIN_VECES`).
+  - **No se guarda** (y el panel lo dice): preguntas/respuestas de la trivia multijugador y palabras del ahorcado
+    multijugador (viven en memoria).
+
 ## Login con Google
 
 - `POST /auth/google` con `{ credential }` (ID token de Google Identity Services). Responde igual que
@@ -387,6 +413,7 @@ prisma/
 | `PORT` | puerto (Render lo define solo; default 3000) |
 | `CORS_ORIGIN` | opcional, orígenes separados por coma; vacío = cualquiera |
 | `GOOGLE_CLIENT_ID` | login con Google (opcional; mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend) |
+| `ADMIN_EMAILS` | mails del equipo con acceso al panel `/admin` (separados por coma). Sin ella, nadie es admin |
 | `AI_PROVIDER` | proveedor de IA: `gemini` (por defecto), `anthropic`, `openai` o `fake` (sólo fuera de producción) |
 | `MAIL_PROVIDER`, `MAIL_FROM`, `BREVO_API_KEY`, `RESEND_API_KEY`, `SMTP_*` | envío de mails (recuperar contraseña). Opcional. En Render: `brevo` |
 | `FRONTEND_URL` | URL del frontend para los links de los mails (default `http://localhost:5173`) |

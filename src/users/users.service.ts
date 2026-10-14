@@ -2,6 +2,8 @@ import { ConflictException, Injectable, NotFoundException } from '@nestjs/common
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
+import { ConfigService } from '@nestjs/config'
+import { isAdminEmail, parseAdminEmails } from '../admin/admin-access'
 
 // Lo que cualquier usuario logueado puede ver de otro: sin email, fecha de nacimiento
 // ni nombre y apellido reales (puede haber menores de edad registrados).
@@ -40,7 +42,10 @@ const OWN_PROFILE_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private config: ConfigService,
+  ) {}
 
   findAll() {
     return this.prisma.users.findMany({
@@ -66,7 +71,8 @@ export class UsersService {
       select: OWN_PROFILE_SELECT,
     })
     if (!user) throw new NotFoundException('Usuario no encontrado')
-    return user
+    // isAdmin: el frontend muestra el botón del panel. Igual el backend lo vuelve a controlar en /admin.
+    return { ...user, isAdmin: isAdminEmail(user.email, parseAdminEmails(this.config.get<string>('ADMIN_EMAILS'))) }
   }
 
   async update(id: string, data: UpdateProfileDto) {

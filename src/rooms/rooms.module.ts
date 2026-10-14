@@ -26,5 +26,6 @@ import { getJwtConfig } from '../auth/jwt.config';
   ],
   controllers: [RoomsController],
   providers: [RoomsService, MultiplayerService, RoomsGateway],
+  exports: [MultiplayerService], // el panel de administración lee las salas en vivo
 })
 export class RoomsModule {}

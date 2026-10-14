@@ -270,6 +270,21 @@ describe('ronda', () => {
   });
 });
 
+describe('resumen en vivo (panel de administración)', () => {
+  it('cuenta salas con alguien conectado, las que están en partida y los conectados', async () => {
+    const s = setup();
+    expect(s.engine.liveSummary()).toEqual({ salas: 0, jugando: 0, conectados: 0, porJuego: {} });
+    const code = await salaConDos(s);
+    const otra = await salaConDos(s);
+    await s.engine.join(otra, { userId: 'c' });
+    await arrancar(s, code);
+    await s.engine.disconnect(otra, 'c');
+    expect(s.engine.liveSummary()).toEqual({
+      salas: 2, jugando: 1, conectados: 4, porJuego: { tutti_frutti: { salas: 2, jugando: 1, conectados: 4 } },
+    });
+  });
+});
+
 describe('empates', () => {
   // Juega una ronda: cada uno manda sus respuestas y "a" canta ¡Basta!
   async function jugar(s: ReturnType<typeof setup>, code: string, respuestas: (L: string) => Record<string, Record<string, string>>) {
