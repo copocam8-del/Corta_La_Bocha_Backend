@@ -1,5 +1,6 @@
 import { Transform } from 'class-transformer';
 import { registerDecorator, ValidationOptions } from 'class-validator';
+import { COMMON_PASSWORDS } from './common-passwords';
 
 // Reglas de registro/login. El frontend repite estas mismas reglas en src/auth/rules.ts
 // para avisar antes de enviar, pero la validación que manda es esta.
@@ -31,6 +32,22 @@ export function ageFrom(birthDate: string, today = new Date()): number {
     (today.getUTCMonth() === birth.getUTCMonth() && today.getUTCDate() < birth.getUTCDate());
   if (beforeBirthday) age -= 1;
   return age;
+}
+
+// Contraseñas de la lista de las más usadas (se compara sin mayúsculas: "PASSWORD" = "password")
+export const COMMON_PASSWORD_MESSAGE = 'Esa contraseña es muy común. Elegí otra más difícil de adivinar.';
+const COMMON_SET = new Set(COMMON_PASSWORDS);
+export const isCommonPassword = (password: string) => COMMON_SET.has(password.toLowerCase());
+
+export function NotCommonPassword(options?: ValidationOptions) {
+  return (object: object, propertyName: string) =>
+    registerDecorator({
+      name: 'notCommonPassword',
+      target: object.constructor,
+      propertyName,
+      options: { message: COMMON_PASSWORD_MESSAGE, ...options },
+      validator: { validate: (value: unknown) => typeof value === 'string' && !isCommonPassword(value) },
+    });
 }
 
 export function MinAge(years: number, options?: ValidationOptions) {

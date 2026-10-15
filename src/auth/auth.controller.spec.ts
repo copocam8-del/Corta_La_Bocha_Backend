@@ -34,7 +34,7 @@ const registroValido = {
   birthDate: '1987-06-24',
   country: 'Argentina',
   email: 'leo@mail.com',
-  password: 'contraseña123',
+  password: 'gambeta-de-potrero',
 };
 
 describe('AuthController', () => {
@@ -102,7 +102,7 @@ describe('Validación de /auth/register', () => {
   });
 
   it('acepta contraseñas de 8 y de 72 caracteres', async () => {
-    expect((await validate(RegisterDto, { ...registroValido, password: 'a'.repeat(8) })).errors).toBeUndefined();
+    expect((await validate(RegisterDto, { ...registroValido, password: 'Gambeta8' })).errors).toBeUndefined();
     expect((await validate(RegisterDto, { ...registroValido, password: 'a'.repeat(72) })).errors).toBeUndefined();
   });
 

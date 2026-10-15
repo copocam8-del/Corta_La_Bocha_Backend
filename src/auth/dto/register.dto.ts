@@ -4,6 +4,7 @@ import {
   MinAge,
   NAME_MAX,
   NormalizeEmail,
+  NotCommonPassword,
   PASSWORD_MAX,
   PASSWORD_MIN,
   TrimOrUndefined,
@@ -54,6 +55,7 @@ export class RegisterDto {
   @NormalizeEmail()
   email: string;
 
+  @NotCommonPassword()
   @Length(PASSWORD_MIN, PASSWORD_MAX, {
     message: `La contraseña debe tener entre ${PASSWORD_MIN} y ${PASSWORD_MAX} caracteres`,
   })
