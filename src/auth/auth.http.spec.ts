@@ -88,6 +88,27 @@ describe('/auth por HTTP', () => {
       expect(res.body.errors.password[0]).toMatch(/entre 8 y 72/);
     });
   });
+
+  describe('mails descartables', () => {
+    it.each(['alguien@mailinator.com', 'x@10minutemail.com', 'x@YOPMAIL.com', 'x@sub.mailinator.com'])(
+      'el registro rechaza %s con 400',
+      async (email) => {
+        const res = await request(app.getHttpServer())
+          .post('/auth/register')
+          .send({ ...registroValido, email })
+          .expect(400);
+        expect(res.body.errors.email).toEqual(['No aceptamos mails temporales o descartables. Usá tu mail de siempre.']);
+        expect(authService.register).not.toHaveBeenCalled();
+      },
+    );
+
+    it('un mail común pasa', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ ...registroValido, email: 'leo@gmail.com' })
+        .expect(201);
+    });
+  });
 });
 
 describe('/auth: límite de intentos por email', () => {

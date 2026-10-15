@@ -5,6 +5,7 @@ import {
   NAME_MAX,
   NormalizeEmail,
   NotCommonPassword,
+  NotDisposableEmail,
   PASSWORD_MAX,
   PASSWORD_MIN,
   TrimOrUndefined,
@@ -49,6 +50,7 @@ export class RegisterDto {
   @TrimOrUndefined()
   country?: string;
 
+  @NotDisposableEmail()
   @MaxLength(255, { message: 'El email es demasiado largo' })
   @IsEmail({}, { message: 'El email no es válido' })
   @IsNotEmpty({ message: 'Ingresá tu email' })
