@@ -64,4 +64,11 @@ export class RegisterDto {
   @IsString({ message: 'La contraseña debe ser texto' })
   @IsNotEmpty({ message: 'Ingresá una contraseña' })
   password: string;
+
+  // Token del captcha (Cloudflare Turnstile). Sólo se exige si el backend tiene TURNSTILE_SECRET_KEY.
+  // Los tokens de Turnstile tienen hasta 2048 caracteres.
+  @MaxLength(2048, { message: 'El captcha no es válido' })
+  @IsString({ message: 'El captcha no es válido' })
+  @IsOptional()
+  captchaToken?: string;
 }

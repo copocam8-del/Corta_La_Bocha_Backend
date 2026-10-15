@@ -1,5 +1,6 @@
-import { Controller, Post, Get, Body, UseGuards, Request, UsePipes, HttpCode, UnauthorizedException } from '@nestjs/common';
+import { Controller, Post, Get, Body, UseGuards, Request, UsePipes, HttpCode, UnauthorizedException, Ip } from '@nestjs/common';
 import { EmailAttemptLimiter } from './email-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
 import { PasswordResetService } from './password-reset.service';
 import { ForgotPasswordDto, ResetPasswordDto } from './dto/password-reset.dto';
 import { AuthGuard } from '@nestjs/passport';
@@ -19,14 +20,17 @@ export class AuthController {
     private readonly googleAuthService: GoogleAuthService,
     private readonly passwordReset: PasswordResetService,
     private readonly emailLimiter: EmailAttemptLimiter,
+    private readonly turnstile: TurnstileService,
   ) {}
 
-  // Máximo 5 registros por minuto por IP
+  // Máximo 5 registros por minuto por IP. Con TURNSTILE_SECRET_KEY, además pide el captcha.
   @Throttle({ default: { ttl: 60_000, limit: 5 } })
   @UseGuards(ThrottlerGuard)
   @Post('register')
-  register(@Body() body: RegisterDto) {
-    return this.authService.register(body);
+  async register(@Body() body: RegisterDto, @Ip() ip: string) {
+    const { captchaToken, ...data } = body;
+    await this.turnstile.verify(captchaToken, ip);
+    return this.authService.register(data);
   }
 
   // Máximo 10 intentos de login por minuto por IP (frena a quien prueba contraseñas)

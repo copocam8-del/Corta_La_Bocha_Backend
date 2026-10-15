@@ -9,6 +9,7 @@ import { authValidationPipe } from './auth-validation.pipe';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
 import { EmailAttemptLimiter } from './email-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
 
 // Pasa el body por el mismo pipe que usa el controlador y devuelve el DTO o los errores por campo
 async function validate<T>(metatype: new () => T, body: object) {
@@ -50,6 +51,7 @@ describe('AuthController', () => {
         { provide: GoogleAuthService, useValue: { login: jest.fn() } },
         { provide: PasswordResetService, useValue: { forgot: jest.fn(), reset: jest.fn() } },
         EmailAttemptLimiter,
+        { provide: TurnstileService, useValue: { verify: jest.fn() } },
       ],
     }).compile();
 

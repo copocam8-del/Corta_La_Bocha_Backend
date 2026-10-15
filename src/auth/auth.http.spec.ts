@@ -1,4 +1,5 @@
 import { INestApplication, UnauthorizedException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test } from '@nestjs/testing';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import request from 'supertest';
@@ -7,6 +8,7 @@ import { AuthService } from './auth.service';
 import { GoogleAuthService } from './google-auth.service';
 import { PasswordResetService } from './password-reset.service';
 import { EMAIL_WINDOW_MS, EmailAttemptLimiter } from './email-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
 
 // Tests de /auth por HTTP de verdad (pipe, guards y códigos de estado), con los servicios simulados.
 const registroValido = {
@@ -31,6 +33,7 @@ describe('/auth por HTTP', () => {
         { provide: GoogleAuthService, useValue: { login: jest.fn() } },
         { provide: PasswordResetService, useValue: passwordReset },
         EmailAttemptLimiter,
+        { provide: TurnstileService, useValue: { verify: jest.fn() } },
       ],
     })
       // El límite por IP tiene su propio test (auth.controller.spec.ts): acá se prueba otra cosa
@@ -127,6 +130,7 @@ describe('/auth: límite de intentos por email', () => {
         { provide: GoogleAuthService, useValue: { login: jest.fn() } },
         { provide: PasswordResetService, useValue: passwordReset },
         EmailAttemptLimiter,
+        { provide: TurnstileService, useValue: { verify: jest.fn() } },
       ],
     })
       // Sin el límite por IP: así se ve que el de email funciona solo (como si cambiaran de IP)
@@ -196,5 +200,70 @@ describe('/auth: límite de intentos por email', () => {
   it('los contadores de login y de forgot-password son independientes', async () => {
     for (let i = 0; i < 5; i++) await login('mixto@mail.com').expect(401);
     await request(app.getHttpServer()).post('/auth/forgot-password').send({ email: 'mixto@mail.com' }).expect(200);
+  });
+});
+
+describe('/auth/register con captcha (Turnstile)', () => {
+  let app: INestApplication;
+  let fetchMock: jest.SpyInstance;
+  const authService = { register: jest.fn(), login: jest.fn() };
+
+  beforeAll(async () => {
+    const mod = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])],
+      controllers: [AuthController],
+      providers: [
+        { provide: AuthService, useValue: authService },
+        { provide: GoogleAuthService, useValue: { login: jest.fn() } },
+        { provide: PasswordResetService, useValue: { forgot: jest.fn(), reset: jest.fn() } },
+        EmailAttemptLimiter,
+        TurnstileService,
+        { provide: ConfigService, useValue: { get: (k: string) => (k === 'TURNSTILE_SECRET_KEY' ? 'secreto' : undefined) } },
+      ],
+    })
+      .overrideGuard(ThrottlerGuard)
+      .useValue({ canActivate: () => true })
+      .compile();
+    app = mod.createNestApplication();
+    await app.init();
+  });
+
+  afterAll(() => app.close());
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    fetchMock = jest.spyOn(global, 'fetch');
+    authService.register.mockResolvedValue({ message: 'Usuario creado', userId: 'u1', username: 'messi_10' });
+  });
+
+  afterEach(() => fetchMock.mockRestore());
+
+  const registrar = (extra: object) =>
+    request(app.getHttpServer())
+      .post('/auth/register')
+      .send({ ...registroValido, ...extra });
+
+  it('sin captchaToken → 400 y no se crea la cuenta', async () => {
+    const res = await registrar({}).expect(400);
+    expect(res.body.errors.captchaToken).toBeDefined();
+    expect(authService.register).not.toHaveBeenCalled();
+  });
+
+  it('con captcha válido → 201 y el token no llega al servicio de registro', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ success: true }), { status: 200 }));
+    await registrar({ captchaToken: 'tok' }).expect(201);
+    expect(authService.register).toHaveBeenCalledWith(expect.not.objectContaining({ captchaToken: expect.anything() }));
+  });
+
+  it('con captcha inválido → 400', async () => {
+    fetchMock.mockResolvedValue(new Response(JSON.stringify({ success: false }), { status: 200 }));
+    await registrar({ captchaToken: 'tok' }).expect(400);
+    expect(authService.register).not.toHaveBeenCalled();
+  });
+
+  it('captchaToken que no es texto o gigante → 400 sin llamar a Cloudflare', async () => {
+    await registrar({ captchaToken: { a: 1 } }).expect(400);
+    await registrar({ captchaToken: 'x'.repeat(5000) }).expect(400);
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
