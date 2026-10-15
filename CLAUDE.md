@@ -37,12 +37,19 @@ npx prisma db seed          # cargar categorías (prisma/seed.ts)
 
 Todos los `*.spec.ts` pasan (`npx jest`). La IA siempre va mockeada en los tests.
 
+Tests e2e de seguridad (app completa + PostgreSQL **local**): con `npm run db:local` andando, en otra terminal
+`npx jest --config test/jest-e2e.json test/seguridad --forceExit`. `test/e2e-env.ts` se carga antes de cada e2e:
+fija una `DATABASE_URL` local (`E2E_DATABASE_URL`, o la de `.env.local`, o la local por defecto), **se niega a
+seguir si no es localhost** y apaga IA real, mails, Google y captcha (nada sale a internet). Los e2e viejos de la
+plantilla (`app.e2e-spec.ts`, `tutti-frutti.e2e-spec.ts`) están desactualizados: el CI corre sólo `test/seguridad`.
+
 ### Base local para programar
 
 `npm run db:local` (PostgreSQL local con Docker o embedded-postgres + migraciones + seed; `-- --verificar` levanta,
 migra y apaga) y `npm run dev:local` (servidor con `.env.local`). Ambos **se niegan a arrancar si `DATABASE_URL` de
 `.env.local` no es localhost**. Paso a paso para Windows en el README. Scripts en `scripts/*.mjs`; datos en `.local-db/`
-(ignorado por git).
+(ignorado por git). La base se crea en **UTF8** (como Supabase); si tu `.local-db/data` es de antes del 14/10/2026
+quedó en WIN1252 (la trivia da 500 por la "ć" de Modrić): borrá esa carpeta y corré `npm run db:local` de nuevo.
 
 ### Probar con un servidor real (sin tocar producción)
 
@@ -62,12 +69,17 @@ npx prisma migrate deploy; npx prisma db seed; npm run build; node dist/src/main
 
 ```
 src/
-  main.ts              arranque: PORT (Render), CORS_ORIGIN opcional
+  main.ts              arranque: PORT (Render)
+  app.setup.ts         trust proxy, cabeceras de seguridad (helmet) y CORS_ORIGIN; lo usan main.ts y los tests
+  security/            cabeceras HTTP de seguridad (security-headers.ts)
   app.module.ts        ConfigModule global + módulos
   auth/                registro, login, JWT
     jwt.config.ts      ÚNICO lugar que lee JWT_SECRET / JWT_EXPIRATION
     auth-validation.pipe.ts  ValidationPipe sólo de /auth, errores agrupados por campo
-    dto/auth-rules.ts  reglas de registro (largos, regex, edad mínima)
+    dto/auth-rules.ts  reglas de registro (largos, regex, edad mínima, contraseñas comunes, mails descartables)
+    dto/common-passwords.ts / dto/disposable-domains.ts   listas propias (sin dependencias)
+    email-attempt-limiter.ts  límite de intentos por email (login y forgot-password)
+    turnstile.service.ts      captcha de Cloudflare en el registro (opcional)
   users/               perfil (/users/me)
   admin/               panel de administración del equipo (sólo lectura, ADMIN_EMAILS)
   rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
@@ -90,7 +102,12 @@ prisma/
 - Errores: 400 `{ statusCode, message: 'Datos inválidos', errors: { campo: ['mensaje'] } }`,
   401 credenciales inválidas, 409 email o usuario repetido.
 - Límite de intentos por IP (`@nestjs/throttler`, en memoria): login 10/min, registro 5/min → 429.
-  `main.ts` tiene `trust proxy` para que Render pase la IP real.
+  `app.setup.ts` tiene `trust proxy` para que Render pase la IP real.
+- Además, **por email** (`EmailAttemptLimiter`, en memoria): 5 logins fallidos cada 15 min (uno correcto limpia
+  el contador) y 5 pedidos de `forgot-password` cada 15 min → 429. Cuenta igual exista o no la cuenta.
+- Registro: rechaza contraseñas de la lista de las más comunes (sin mayúsculas, también en `reset-password`; el
+  login no, por las cuentas viejas) y mails de dominios descartables (también subdominios). Con
+  `TURNSTILE_SECRET_KEY` exige `captchaToken` (ver "Seguridad").
 - En registro, usuario/nombre/apellido/país vacíos ("") cuentan como "no enviados". Si no viene usuario se
   genera uno desde el nombre. El usuario se compara sin distinguir mayúsculas ("Messi" = "messi").
 - Privacidad: `GET /users` y `GET /users/:id` devuelven sólo datos públicos (sin email, fecha de nacimiento
@@ -403,6 +420,45 @@ prisma/
      (sin contraseña). Un email no verificado nunca se usa para unir cuentas.
 - Sin `GOOGLE_CLIENT_ID` el endpoint responde 503 y el resto de la app funciona igual.
 
+## Seguridad
+
+Checklist pre-producción (rama `feat/seguridad`, octubre 2026). ✅ hecho · ⚠️ hecho pero falta un paso a mano.
+
+| # | Punto | Estado | Dónde / cómo |
+|---|---|---|---|
+| 1 | Cabeceras HTTP | ✅ | `helmet` en `app.setup.ts` (`security/security-headers.ts`): HSTS 1 año + subdominios, nosniff, X-Frame-Options DENY, Referrer-Policy `strict-origin-when-cross-origin`, CSP `default-src 'none'` (la API sólo devuelve JSON). Un test comprueba que no rompe CORS (con preflight) ni el handshake de Socket.IO |
+| 2 | Contraseñas comunes | ✅ | `dto/common-passwords.ts`: las 1000 más usadas de SecLists con 8–72 caracteres + algunas argentinas ("argentina10", "bocajuniors"…). Registro y `reset-password` → 400 "Esa contraseña es muy común…". Copia idéntica en el frontend |
+| 3 | Límite por email | ✅ | `email-attempt-limiter.ts` (ver "Auth"). En memoria: con varias instancias habría que pasarlo a Redis |
+| 4 | Mails descartables | ✅ | `dto/disposable-domains.ts` (~9900 dominios de `disposable-email-domains`, copiada el 14/10/2026). Un test controla que gmail/hotmail/outlook/fibertel/etc. nunca queden bloqueados |
+| 5 | Captcha Turnstile | ⚠️ | `turnstile.service.ts`: con `TURNSTILE_SECRET_KEY`, `/auth/register` exige `captchaToken` y lo verifica con Cloudflare (timeout 8 s; 400 si es inválido, 503 si Cloudflare no responde: nunca deja pasar sin verificar). Sin la variable, se saltea y lo avisa en el log. Nunca se loguean el token ni la clave. **Falta crear el widget y cargar las claves** |
+| 6 | Aislamiento entre usuarios | ✅ | Cada juego busca la partida y compara `user_id` con el del token (404 igual a "no existe"). `test/seguridad.e2e-spec.ts` lo prueba con dos usuarios reales en solo-matches, ahorcado, trivia, sopa, memotest y desafío, y recorre `/users`, `/users/:id`, rankings, `/rooms/:code` y `room:state` buscando `password_hash`, `email`, `birth_date`, `google_id` o `first/last_name` |
+| 7 | Validación de entradas | ✅ | El e2e manda payloads raros (tipo equivocado, null, objetos, strings gigantes, arrays de 1000) a **todos** los endpoints con body/query y a **todos** los eventos de Socket.IO, también en plena partida de cada juego: nunca 500, siempre `{ ok }`. Arreglado: un body que no es objeto (`[]`) daba 500 (`authValidationPipe` ahora lo rechaza), límites de largo en `validate-round`/`solo-matches`, y `WsSafeAckInterceptor`: si un handler de Socket.IO tira una excepción, el cliente igual recibe `{ ok: false }` |
+| 8 | RLS en Supabase | ⚠️ | Migración `20261014120000_rls_todas_las_tablas`: `ENABLE ROW LEVEL SECURITY` en las 17 tablas de public (con `_prisma_migrations`), sin políticas. **Sin aplicar en producción** (primero backup). Ver abajo |
+| 9 | CI | ✅ | `.github/workflows/ci.yml` en cada PR: `npm ci`, `prisma generate`, `jest`, `build`, `npm audit --audit-level=high --omit=dev --include=prod` y los e2e de seguridad contra una PostgreSQL de servicio. Hoy 0 vulnerabilidades en producción (no hay nada ignorado). `.github/dependabot.yml`: npm y github-actions semanal, con 14 días de espera |
+| 10 | Secretos en el repo | ✅ | Job `secretos` del CI: gitleaks 8.30.1 (checksum verificado) sobre todo el historial. Hoy sin hallazgos |
+
+- **RLS: por qué la app sigue andando.** Supabase publica el esquema `public` por su API REST con los roles
+  `anon`/`authenticated`: sin RLS, cualquiera con la "anon key" podría leer las tablas sin pasar por este backend.
+  Con RLS y sin políticas, esos roles no ven ninguna fila. Prisma entra como **dueño** de las tablas (el usuario que
+  corrió las migraciones) y en PostgreSQL el dueño no está sujeto a RLS (no usamos `FORCE ROW LEVEL SECURITY`).
+  Probado con un usuario **sin** superusuario ni `BYPASSRLS` y dueño de las tablas (el superusuario se saltea RLS
+  siempre, así que con él la prueba no valdría): pasa toda la suite e2e y un rol tipo `anon` ve 0 filas y no puede
+  insertar. El CI repite esa prueba en cada PR. **Antes de aplicarla en producción**, confirmá en el SQL Editor de
+  Supabase que el usuario de `DATABASE_URL` es el dueño:
+  `SELECT current_user; SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public';`.
+  Tabla nueva = activale RLS en su migración (el e2e falla si alguna queda sin RLS).
+- **Migraciones y Render**: confirmá que el Build/Start Command de Render **no** corre `prisma migrate deploy`; si lo
+  corre, mergear esta rama aplica RLS en producción sin el backup.
+- **Token Bearer, no cookies (a propósito).** El frontend guarda el JWT en `localStorage` y lo manda en
+  `Authorization: Bearer …`. Como el navegador nunca lo agrega solo (no es una cookie), otra página no puede hacer
+  pedidos "en nombre" del usuario: **no hace falta protección CSRF**. La contra es que un XSS en el frontend podría
+  leer el token: por eso React escapa todo, no usamos `dangerouslySetInnerHTML` con datos de usuarios y el
+  frontend tiene una CSP (por ahora en modo Report-Only). Si algún día se pasa a cookies, hay que sumar CSRF
+  (`SameSite` + token).
+- **No hay uploads.** Ningún endpoint recibe archivos (los avatares son ids de una lista fija y se validan contra
+  `avatars.ts`). `multer` está instalado sólo porque viene con `@nestjs/platform-express`. Si se agregan uploads,
+  hay que limitar tamaño y tipo, y no servirlos desde el mismo dominio.
+
 ## Variables de entorno (ver `.env.example`)
 
 | Variable | Para qué |
@@ -413,6 +469,7 @@ prisma/
 | `PORT` | puerto (Render lo define solo; default 3000) |
 | `CORS_ORIGIN` | opcional, orígenes separados por coma; vacío = cualquiera |
 | `GOOGLE_CLIENT_ID` | login con Google (opcional; mismo valor que `VITE_GOOGLE_CLIENT_ID` del frontend) |
+| `TURNSTILE_SECRET_KEY` | captcha del registro (opcional; "Secret Key" del widget de Cloudflare Turnstile). Va con `VITE_TURNSTILE_SITE_KEY` del frontend |
 | `ADMIN_EMAILS` | mails del equipo con acceso al panel `/admin` (separados por coma). Sin ella, nadie es admin |
 | `AI_PROVIDER` | proveedor de IA: `gemini` (por defecto), `anthropic`, `openai` o `fake` (sólo fuera de producción) |
 | `MAIL_PROVIDER`, `MAIL_FROM`, `BREVO_API_KEY`, `RESEND_API_KEY`, `SMTP_*` | envío de mails (recuperar contraseña). Opcional. En Render: `brevo` |
