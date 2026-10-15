@@ -10,6 +10,7 @@ import { JwtStrategy } from './jwt.strategy';
 import { getJwtConfig } from './jwt.config';
 import { PasswordResetService } from './password-reset.service';
 import { MailService } from '../mail/mail.service';
+import { EmailAttemptLimiter } from './email-attempt-limiter';
 
 @Module({
   imports: [
@@ -31,6 +32,6 @@ import { MailService } from '../mail/mail.service';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, GoogleAuthService, PasswordResetService, MailService, JwtStrategy],
+  providers: [AuthService, GoogleAuthService, PasswordResetService, MailService, JwtStrategy, EmailAttemptLimiter],
 })
 export class AuthModule {}
