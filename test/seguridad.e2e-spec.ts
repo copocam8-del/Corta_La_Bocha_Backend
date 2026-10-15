@@ -20,6 +20,7 @@ import { AdminThrottlerGuard } from '../src/admin/admin-throttler.guard';
 import { TEMATICAS, DIFICULTADES } from '../src/solo-matches/solo-quick';
 import { TEMATICAS_SOPA } from '../src/sopa/sopa-rules';
 import { TEMAS_MEMOTEST } from '../src/memotest/memotest-rules';
+import { PrismaService } from '../src/prisma/prisma.service';
 
 jest.setTimeout(120_000);
 
@@ -532,5 +533,48 @@ describe('Payloads raros por Socket.IO: siempre { ok }, nunca se cae', () => {
     }
     await http().get('/games').expect(200);
     expect((await emitir(a, 'queue:leave')).ok).toBe(true);
+  });
+});
+
+// ─────────────────────────────── 5. Row Level Security ───────────────────────────────
+// La migración 20261014120000_rls_todas_las_tablas activa RLS sin políticas. La app sigue andando porque Prisma
+// entra como DUEÑO de las tablas (el dueño no está sujeto a RLS). Para que la prueba valga, en el CI (y con
+// E2E_SIN_SUPERUSUARIO=1 en local) la app corre con un usuario que NO es superusuario ni tiene BYPASSRLS:
+// si RLS la frenara, fallarían todos los tests de arriba. E2E_ROL_ANON = un rol tipo "anon" de Supabase.
+
+describe('Row Level Security', () => {
+  const prisma = () => app.get(PrismaService);
+
+  it('todas las tablas de public tienen RLS activado', async () => {
+    const sinRls = await prisma().$queryRaw<{ tablename: string }[]>`
+      SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND NOT rowsecurity ORDER BY 1`;
+    expect(sinRls.map((t) => t.tablename)).toEqual([]);
+  });
+
+  const conUsuarioComun = process.env.E2E_SIN_SUPERUSUARIO === '1' ? it : it.skip;
+  conUsuarioComun('la app corre con un usuario que NO se saltea RLS por ser superusuario, y es dueño de las tablas', async () => {
+    const [yo] = await prisma().$queryRaw<{ usuario: string; superusuario: boolean; bypassrls: boolean }[]>`
+      SELECT current_user AS usuario, rolsuper AS superusuario, rolbypassrls AS bypassrls FROM pg_roles WHERE rolname = current_user`;
+    expect(yo).toMatchObject({ superusuario: false, bypassrls: false });
+    const ajenas = await prisma().$queryRaw<{ tablename: string }[]>`
+      SELECT tablename FROM pg_tables WHERE schemaname = 'public' AND tableowner <> current_user`;
+    expect(ajenas).toEqual([]);
+  });
+
+  const rolAnon = process.env.E2E_ROL_ANON;
+  (rolAnon ? it : it.skip)('un rol que no es dueño (como "anon" de Supabase) no ve ni puede crear filas', async () => {
+    const comoDueño = await prisma().users.count();
+    expect(comoDueño).toBeGreaterThan(0);
+    const comoAnon = await prisma().$transaction(async (tx) => {
+      await tx.$executeRawUnsafe(`SET LOCAL ROLE "${rolAnon}"`);
+      return tx.$queryRaw<{ n: bigint }[]>`SELECT count(*) AS n FROM users`;
+    });
+    expect(Number(comoAnon[0].n)).toBe(0);
+    await expect(
+      prisma().$transaction(async (tx) => {
+        await tx.$executeRawUnsafe(`SET LOCAL ROLE "${rolAnon}"`);
+        await tx.$executeRaw`INSERT INTO categories (id, name) VALUES (gen_random_uuid(), 'hackeada')`;
+      }),
+    ).rejects.toThrow(/row-level security/);
   });
 });
