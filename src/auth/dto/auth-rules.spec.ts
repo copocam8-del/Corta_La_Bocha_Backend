@@ -1,3 +1,5 @@
+import * as fs from 'fs';
+import * as path from 'path';
 import { COMMON_PASSWORDS } from './common-passwords';
 import { DISPOSABLE_EMAIL_DOMAINS } from './disposable-domains';
 import { isCommonPassword, isDisposableEmail, PASSWORD_MAX, PASSWORD_MIN } from './auth-rules';
@@ -52,5 +54,14 @@ describe('isDisposableEmail', () => {
   it('la lista tiene dominios con formato válido', () => {
     expect(DISPOSABLE_EMAIL_DOMAINS.length).toBeGreaterThan(1000);
     for (const d of DISPOSABLE_EMAIL_DOMAINS) expect(d).toMatch(/^[a-z0-9.-]+\.[a-z0-9-]+$/);
+  });
+});
+
+// El frontend tiene una copia de la lista para avisar antes de enviar: tienen que ser iguales
+describe('lista de contraseñas comunes del frontend', () => {
+  const front = path.resolve(__dirname, '../../../../Corta_La_Bocha_Frontend/src/auth/common-passwords.ts');
+  (fs.existsSync(front) ? it : it.skip)('es igual a la del backend', () => {
+    const lista = [...fs.readFileSync(front, 'utf8').matchAll(/^ {2}'(.*)',\r?$/gm)].map((m) => m[1]);
+    expect(lista).toEqual([...COMMON_PASSWORDS]);
   });
 });
