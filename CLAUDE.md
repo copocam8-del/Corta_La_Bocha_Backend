@@ -282,7 +282,7 @@ prisma/
   mueven** (hay rivales). Todos cuentan para las ligas y el ranking.
 - Ranking por juego: `GET /users/ranking?game=<id>&period=…` y `GET /users/me/ranking?game=…`. `GET /users/me/games`
   devuelve las estadísticas por juego.
-- Migración `20261012130000_plataforma_juegos` (sin aplicar): copia los totales de cada perfil a `game_stats` como
+- Migración `20261012130000_plataforma_juegos` (aplicada): copió los totales de cada perfil a `game_stats` como
   Tutti Frutti (hasta ahora era el único juego).
 
 ## Ahorcado "Que no muera la redonda" (`src/ahorcado/`)
@@ -312,7 +312,7 @@ prisma/
 
 - Misma serie para todos cada día argentino (cambia a medianoche, UTC−3): 1 fácil, 2 medias y 2 difíciles del banco
   de la trivia, elegidas y mezcladas con una semilla que depende sólo de la fecha (`preguntasDelDia`).
-- Tabla `daily_challenges` (migración `20261012140000_desafio_diario`, sin aplicar): una fila por usuario y día con
+- Tabla `daily_challenges` (migración `20261012140000_desafio_diario`, aplicada): una fila por usuario y día con
   índice único → **una sola vez por día**. Si recarga a la mitad, retoma (el reloj sigue corriendo en el servidor; si
   la pregunta venció mientras no estaba, cuenta como "sin tiempo").
 - `GET /desafio-diario/hoy` (si ya jugó, resultado + texto para compartir + racha), `POST /desafio-diario/empezar`,
@@ -433,7 +433,7 @@ Checklist pre-producción (rama `feat/seguridad`, octubre 2026). ✅ hecho · �
 | 5 | Captcha Turnstile | ⚠️ | `turnstile.service.ts`: con `TURNSTILE_SECRET_KEY`, `/auth/register` exige `captchaToken` y lo verifica con Cloudflare (timeout 8 s; 400 si es inválido, 503 si Cloudflare no responde: nunca deja pasar sin verificar). Sin la variable, se saltea y lo avisa en el log. Nunca se loguean el token ni la clave. **Falta crear el widget y cargar las claves** |
 | 6 | Aislamiento entre usuarios | ✅ | Cada juego busca la partida y compara `user_id` con el del token (404 igual a "no existe"). `test/seguridad.e2e-spec.ts` lo prueba con dos usuarios reales en solo-matches, ahorcado, trivia, sopa, memotest y desafío, y recorre `/users`, `/users/:id`, rankings, `/rooms/:code` y `room:state` buscando `password_hash`, `email`, `birth_date`, `google_id` o `first/last_name` |
 | 7 | Validación de entradas | ✅ | El e2e manda payloads raros (tipo equivocado, null, objetos, strings gigantes, arrays de 1000) a **todos** los endpoints con body/query y a **todos** los eventos de Socket.IO, también en plena partida de cada juego: nunca 500, siempre `{ ok }`. Arreglado: un body que no es objeto (`[]`) daba 500 (`authValidationPipe` ahora lo rechaza), límites de largo en `validate-round`/`solo-matches`, y `WsSafeAckInterceptor`: si un handler de Socket.IO tira una excepción, el cliente igual recibe `{ ok: false }` |
-| 8 | RLS en Supabase | ⚠️ | Migración `20261014120000_rls_todas_las_tablas`: `ENABLE ROW LEVEL SECURITY` en las 17 tablas de public (con `_prisma_migrations`), sin políticas. **Sin aplicar en producción** (primero backup). Ver abajo |
+| 8 | RLS en Supabase | ✅ | Migración `20261014120000_rls_todas_las_tablas`: `ENABLE ROW LEVEL SECURITY` en las 17 tablas de public (con `_prisma_migrations`), sin políticas. **Aplicada en producción el 2026-10-15** (con backup antes): las 17 tablas con `rowsecurity = true` y la app ve los mismos datos. Ver abajo |
 | 9 | CI | ✅ | `.github/workflows/ci.yml` en cada PR: `npm ci`, `prisma generate`, `jest`, `build`, `npm audit --audit-level=high --omit=dev --include=prod` y los e2e de seguridad contra una PostgreSQL de servicio. Hoy 0 vulnerabilidades en producción (no hay nada ignorado). `.github/dependabot.yml`: npm y github-actions semanal, con 14 días de espera |
 | 10 | Secretos en el repo | ✅ | Job `secretos` del CI: gitleaks 8.30.1 (checksum verificado) sobre todo el historial. Hoy sin hallazgos |
 
@@ -443,12 +443,13 @@ Checklist pre-producción (rama `feat/seguridad`, octubre 2026). ✅ hecho · �
   corrió las migraciones) y en PostgreSQL el dueño no está sujeto a RLS (no usamos `FORCE ROW LEVEL SECURITY`).
   Probado con un usuario **sin** superusuario ni `BYPASSRLS` y dueño de las tablas (el superusuario se saltea RLS
   siempre, así que con él la prueba no valdría): pasa toda la suite e2e y un rol tipo `anon` ve 0 filas y no puede
-  insertar. El CI repite esa prueba en cada PR. **Antes de aplicarla en producción**, confirmá en el SQL Editor de
-  Supabase que el usuario de `DATABASE_URL` es el dueño:
-  `SELECT current_user; SELECT tablename, tableowner FROM pg_tables WHERE schemaname = 'public';`.
+  insertar. El CI repite esa prueba en cada PR. En producción Prisma entra como `postgres`, dueño de las 17 tablas
+  (y con `BYPASSRLS`). Para revisarlo:
+  `SELECT current_user; SELECT tablename, tableowner, rowsecurity FROM pg_tables WHERE schemaname = 'public';`.
   Tabla nueva = activale RLS en su migración (el e2e falla si alguna queda sin RLS).
-- **Migraciones y Render**: confirmá que el Build/Start Command de Render **no** corre `prisma migrate deploy`; si lo
-  corre, mergear esta rama aplica RLS en producción sin el backup.
+  Para volver atrás: `ALTER TABLE … DISABLE ROW LEVEL SECURITY` en cada tabla, o restaurar el backup.
+- **Migraciones y Render**: el build de Render (`npm run build` = `prisma generate` + `nest build`) **no** corre
+  `prisma migrate deploy`. Mergear una migración no la aplica: se aplica a mano, con backup antes.
 - **Token Bearer, no cookies (a propósito).** El frontend guarda el JWT en `localStorage` y lo manda en
   `Authorization: Bearer …`. Como el navegador nunca lo agrega solo (no es una cookie), otra página no puede hacer
   pedidos "en nombre" del usuario: **no hace falta protección CSRF**. La contra es que un XSS en el frontend podría
