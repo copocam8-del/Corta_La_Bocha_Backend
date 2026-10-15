@@ -1,0 +1,102 @@
+# CI del backend: corre en cada PR (y en cada push a main). Si algo falla, el PR queda en rojo.
+#   - tests:    npm ci, prisma generate, tests unitarios, build y npm audit (sólo dependencias de producción)
+#   - e2e:      tests de seguridad contra una PostgreSQL de verdad, con un usuario SIN superusuario y dueño de las
+#               tablas (como Prisma en Supabase): prueba que RLS no rompe la app (test/seguridad.e2e-spec.ts)
+#   - secretos: gitleaks sobre TODO el historial (claves, tokens o contraseñas que se hayan subido por error)
+# Las acciones van fijadas por commit (más seguro que por etiqueta); Dependabot las actualiza.
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx jest
+      - run: npm run build
+      # --include=prod hace falta porque .npmrc tiene include=dev (para que Render instale las de desarrollo y
+      # pueda compilar), y en npm "include" le gana a "--omit". Sin esto también auditaría las de desarrollo.
+      # Si algún día aparece una vulnerabilidad que no se puede arreglar, se ignora SÓLO esa (con comentario y
+      # fecha), nunca se apaga el escaneo entero. Hoy (2026-10-14): 0 vulnerabilidades, nada ignorado.
+      - run: npm audit --audit-level=high --omit=dev --include=prod
+
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+    env:
+      PGHOST: localhost
+      PGUSER: postgres
+      PGPASSWORD: postgres
+      # clb_app: sin superusuario ni BYPASSRLS, dueño de la base (como el usuario de Prisma en Supabase)
+      APP_DATABASE_URL: postgresql://clb_app:clb_app@localhost:5432/clb_rls
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 24
+          cache: npm
+      - run: npm ci
+      - name: Crear usuario de la app (no superusuario) y un rol tipo "anon" de Supabase
+        run: |
+          psql -v ON_ERROR_STOP=1 -c "CREATE ROLE clb_app LOGIN PASSWORD 'clb_app' NOSUPERUSER NOBYPASSRLS NOCREATEDB NOCREATEROLE"
+          psql -v ON_ERROR_STOP=1 -c "CREATE DATABASE clb_rls OWNER clb_app"
+          psql -v ON_ERROR_STOP=1 -c "CREATE ROLE anon_sim NOLOGIN; GRANT anon_sim TO clb_app"
+      - name: Migraciones y seed como clb_app (queda dueño de las tablas)
+        env:
+          DATABASE_URL: ${{ env.APP_DATABASE_URL }}
+        run: |
+          npx prisma migrate deploy
+          npx prisma db seed
+          psql "$APP_DATABASE_URL" -v ON_ERROR_STOP=1 -c "GRANT USAGE ON SCHEMA public TO anon_sim; GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA public TO anon_sim"
+      - name: Tests de seguridad (aislamiento, datos públicos, payloads raros, RLS)
+        env:
+          E2E_DATABASE_URL: ${{ env.APP_DATABASE_URL }}
+          E2E_SIN_SUPERUSUARIO: '1'
+          E2E_ROL_ANON: anon_sim
+        # --forceExit: el motor de salas deja timers vivos al cerrar la app
+        run: npx jest --config test/jest-e2e.json test/seguridad --forceExit
+
+  secretos:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # todo el historial, no sólo el último commit
+      - name: Instalar gitleaks (versión fija, con checksum verificado)
+        env:
+          VERSION: 8.30.1
+          SHA256: 551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb
+        run: |
+          curl -sSfL -o gitleaks.tar.gz "https://github.com/gitleaks/gitleaks/releases/download/v${VERSION}/gitleaks_${VERSION}_linux_x64.tar.gz"
+          echo "${SHA256}  gitleaks.tar.gz" | sha256sum -c -
+          tar -xzf gitleaks.tar.gz gitleaks
+      # --redact: si encuentra algo, el log muestra dónde pero no el secreto
+      - run: ./gitleaks git --redact --verbose --log-opts="--all" .

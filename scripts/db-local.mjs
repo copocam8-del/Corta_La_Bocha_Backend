@@ -53,7 +53,13 @@ async function conEmbedded() {
   const mod = await import(new URL(`file:///${require.resolve('embedded-postgres').replace(/\\/g, '/')}`).href);
   const EmbeddedPostgres = mod.default ?? mod;
   const dataDir = path.join(DATA_ROOT, 'data');
-  const pg = new EmbeddedPostgres({ databaseDir: dataDir, user: db.user, password: db.password, port: db.port, persistent: true });
+  // UTF8 como en Supabase: sin esto, en Windows la base sale en WIN1252 y no puede guardar letras como la "ć"
+  // de Modrić (la trivia da 500). El proveedor "builtin" hace que ILIKE ignore mayúsculas también con Ñ y tildes.
+  // Sólo vale para bases nuevas: si tu .local-db/data es de antes, borrala y corré de nuevo npm run db:local.
+  const pg = new EmbeddedPostgres({
+    databaseDir: dataDir, user: db.user, password: db.password, port: db.port, persistent: true,
+    initdbFlags: ['--encoding=UTF8', '--locale=C', '--locale-provider=builtin', '--builtin-locale=C.UTF-8'],
+  });
   if (!fs.existsSync(path.join(dataDir, 'PG_VERSION'))) await pg.initialise();
   await pg.start();
   try {

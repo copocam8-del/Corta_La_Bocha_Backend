@@ -8,6 +8,8 @@ import { PasswordResetService } from './password-reset.service';
 import { authValidationPipe } from './auth-validation.pipe';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto } from './dto/login.dto';
+import { EmailAttemptLimiter } from './email-attempt-limiter';
+import { TurnstileService } from './turnstile.service';
 
 // Pasa el body por el mismo pipe que usa el controlador y devuelve el DTO o los errores por campo
 async function validate<T>(metatype: new () => T, body: object) {
@@ -34,7 +36,7 @@ const registroValido = {
   birthDate: '1987-06-24',
   country: 'Argentina',
   email: 'leo@mail.com',
-  password: 'contraseña123',
+  password: 'gambeta-de-potrero',
 };
 
 describe('AuthController', () => {
@@ -48,6 +50,8 @@ describe('AuthController', () => {
         { provide: AuthService, useValue: { register: jest.fn(), login: jest.fn() } },
         { provide: GoogleAuthService, useValue: { login: jest.fn() } },
         { provide: PasswordResetService, useValue: { forgot: jest.fn(), reset: jest.fn() } },
+        EmailAttemptLimiter,
+        { provide: TurnstileService, useValue: { verify: jest.fn() } },
       ],
     }).compile();
 
@@ -102,7 +106,7 @@ describe('Validación de /auth/register', () => {
   });
 
   it('acepta contraseñas de 8 y de 72 caracteres', async () => {
-    expect((await validate(RegisterDto, { ...registroValido, password: 'a'.repeat(8) })).errors).toBeUndefined();
+    expect((await validate(RegisterDto, { ...registroValido, password: 'Gambeta8' })).errors).toBeUndefined();
     expect((await validate(RegisterDto, { ...registroValido, password: 'a'.repeat(72) })).errors).toBeUndefined();
   });
 

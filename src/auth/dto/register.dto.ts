@@ -4,6 +4,8 @@ import {
   MinAge,
   NAME_MAX,
   NormalizeEmail,
+  NotCommonPassword,
+  NotDisposableEmail,
   PASSWORD_MAX,
   PASSWORD_MIN,
   TrimOrUndefined,
@@ -48,16 +50,25 @@ export class RegisterDto {
   @TrimOrUndefined()
   country?: string;
 
+  @NotDisposableEmail()
   @MaxLength(255, { message: 'El email es demasiado largo' })
   @IsEmail({}, { message: 'El email no es válido' })
   @IsNotEmpty({ message: 'Ingresá tu email' })
   @NormalizeEmail()
   email: string;
 
+  @NotCommonPassword()
   @Length(PASSWORD_MIN, PASSWORD_MAX, {
     message: `La contraseña debe tener entre ${PASSWORD_MIN} y ${PASSWORD_MAX} caracteres`,
   })
   @IsString({ message: 'La contraseña debe ser texto' })
   @IsNotEmpty({ message: 'Ingresá una contraseña' })
   password: string;
+
+  // Token del captcha (Cloudflare Turnstile). Sólo se exige si el backend tiene TURNSTILE_SECRET_KEY.
+  // Los tokens de Turnstile tienen hasta 2048 caracteres.
+  @MaxLength(2048, { message: 'El captcha no es válido' })
+  @IsString({ message: 'El captcha no es válido' })
+  @IsOptional()
+  captchaToken?: string;
 }

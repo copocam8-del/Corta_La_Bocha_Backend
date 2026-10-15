@@ -1,0 +1,28 @@
+# Dependabot: abre PRs para actualizar dependencias. Cada PR pasa por el CI antes de mergear.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Argentina/Buenos_Aires
+    open-pull-requests-limit: 5
+    # Espera 14 días antes de proponer una versión nueva (si una versión sale con malware, suele
+    # detectarse en esos días). Las actualizaciones de seguridad no esperan.
+    cooldown:
+      default-days: 14
+    groups:
+      # Las actualizaciones chicas de herramientas de desarrollo van juntas en un solo PR
+      desarrollo:
+        dependency-type: development
+        update-types: [minor, patch]
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      timezone: America/Argentina/Buenos_Aires
+    cooldown:
+      default-days: 14

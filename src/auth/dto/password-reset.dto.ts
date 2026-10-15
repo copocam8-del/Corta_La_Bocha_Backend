@@ -1,5 +1,5 @@
 import { IsEmail, IsNotEmpty, IsString, Length, MaxLength } from 'class-validator';
-import { NormalizeEmail, PASSWORD_MAX, PASSWORD_MIN } from './auth-rules';
+import { NormalizeEmail, NotCommonPassword, PASSWORD_MAX, PASSWORD_MIN } from './auth-rules';
 
 export class ForgotPasswordDto {
   @MaxLength(255, { message: 'El email es demasiado largo' })
@@ -16,6 +16,7 @@ export class ResetPasswordDto {
   token: string;
 
   // Mismas reglas que en el registro
+  @NotCommonPassword()
   @Length(PASSWORD_MIN, PASSWORD_MAX, {
     message: `La contraseña debe tener entre ${PASSWORD_MIN} y ${PASSWORD_MAX} caracteres`,
   })

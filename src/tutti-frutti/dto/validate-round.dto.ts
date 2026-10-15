@@ -2,7 +2,9 @@ import { IsString, IsNotEmpty, IsOptional, ValidateNested, IsArray, ArrayMaxSize
 import { Type, Transform } from 'class-transformer';
 import type { AnswerStatus } from '../scoring';
 
+// Límites de largo: las categorías tienen menos de 40 letras y un texto gigante no tiene que llegar al servicio
 export class CategoryAnswerDto {
+  @MaxLength(40)
   @IsString()
   @IsNotEmpty()
   category: string;
@@ -15,6 +17,7 @@ export class CategoryAnswerDto {
 }
 
 export class ValidateRoundDto {
+  @MaxLength(2)
   @IsString()
   @IsNotEmpty()
   roundLetter: string;
@@ -25,6 +28,7 @@ export class ValidateRoundDto {
   @Type(() => CategoryAnswerDto)
   answers: CategoryAnswerDto[];
 
+  @MaxLength(36)
   @IsOptional()
   @IsString()
   matchId?: string;
