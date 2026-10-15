@@ -24,6 +24,7 @@ export class StartQuickMatchDto {
 }
 
 export class QuickAnswerDto {
+  @MaxLength(40, { message: 'Categoría inválida' })
   @IsString({ message: 'La categoría debe ser texto' })
   category: string;
 

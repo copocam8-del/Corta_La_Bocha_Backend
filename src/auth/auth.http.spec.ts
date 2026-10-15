@@ -92,6 +92,15 @@ describe('/auth por HTTP', () => {
     });
   });
 
+  it.each([[[]], [['a', 1]], [123], ['texto']])('un body que no es un objeto (%j) → 400, nunca llega al servicio', async (body) => {
+    const res = await request(app.getHttpServer())
+      .post('/auth/register')
+      .set('Content-Type', 'application/json')
+      .send(JSON.stringify(body));
+    expect(res.status).toBe(400);
+    expect(authService.register).not.toHaveBeenCalled();
+  });
+
   describe('mails descartables', () => {
     it.each(['alguien@mailinator.com', 'x@10minutemail.com', 'x@YOPMAIL.com', 'x@sub.mailinator.com'])(
       'el registro rechaza %s con 400',
