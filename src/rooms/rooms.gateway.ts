@@ -8,11 +8,12 @@ import {
   OnGatewayDisconnect,
   OnGatewayInit,
 } from '@nestjs/websockets';
-import { Logger } from '@nestjs/common';
+import { Logger, UseInterceptors } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Server, Socket } from 'socket.io';
 import { PrismaService } from '../prisma/prisma.service';
 import { MultiplayerService } from './multiplayer.service';
+import { WsSafeAckInterceptor } from './ws-safe-ack.interceptor';
 
 // Mismos orígenes que HTTP (CORS_ORIGIN). Se lee en cada conexión porque el .env se carga después
 // de que se evalúan los decoradores.
@@ -32,7 +33,9 @@ const str = (v: unknown) => (typeof v === 'string' ? v : '');
 // Tiempo real del multijugador. Toda conexión se autentica con el JWT (el mismo del login), que
 // llega en el handshake: io(url, { auth: { token } }). Sin token válido, se corta la conexión.
 // El userId sale SIEMPRE del token, nunca de lo que manda el cliente.
+// Si un handler falla sin querer, el cliente igual recibe { ok: false } (ws-safe-ack.interceptor.ts).
 @WebSocketGateway({ cors: { origin: allowedOrigin } })
+@UseInterceptors(WsSafeAckInterceptor)
 export class RoomsGateway implements OnGatewayInit, OnGatewayConnection, OnGatewayDisconnect {
   @WebSocketServer()
   server: Server;
