@@ -5,7 +5,7 @@
 //      juego, ligas y logros, todo en una transacción),
 //   4. sumale 2 o 3 logros con game: '<id>' en achievements.definitions.ts.
 
-export const GAME_IDS = ['tutti_frutti', 'ahorcado', 'trivia', 'trivia_diaria', 'sopa_de_letras', 'memotest'] as const;
+export const GAME_IDS = ['tutti_frutti', 'ahorcado', 'trivia', 'trivia_diaria', 'sopa_de_letras', 'memotest', 'impostor'] as const;
 export type GameId = (typeof GAME_IDS)[number];
 
 export interface GameInfo {
@@ -71,6 +71,17 @@ export const GAMES: GameInfo[] = [
     available: true,
     path: '/memotest',
     multiplayer: true,
+    hasElo: false,
+  },
+  {
+    // Próximamente: se muestra en la pantalla de juegos pero todavía no se puede jugar.
+    // Cuando esté listo: available: true y multiplayer: true (y sumarlo a MULTI_GAMES).
+    id: 'impostor',
+    name: 'El Impostor',
+    description: 'Todos reciben el mismo jugador menos uno. Dá pistas, votá y descubrí al impostor.',
+    available: false,
+    path: '/impostor',
+    multiplayer: false,
     hasElo: false,
   },
 ];
