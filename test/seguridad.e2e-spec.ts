@@ -300,6 +300,7 @@ const CASOS: Caso[] = [
   { metodo: 'post', url: () => '/memotest', auth: 'A', body: { tema: Object.keys(TEMAS_MEMOTEST)[0], nivel: 'facil' } },
   { metodo: 'post', url: () => `/memotest/${partidaA.memotest}/voltear`, auth: 'A', body: { carta: 0 } },
   { metodo: 'post', url: () => `/desafio-diario/${partidaA.desafio}/responder`, auth: 'A', body: { opcion: 0 } },
+  { metodo: 'post', url: () => '/impostor/local', auth: 'A', body: { tematica: 'mezcla', rondas: 3 } },
 ];
 
 // Variantes de un body: cada campo (y cada subcampo) reemplazado por cada valor raro, y el body entero raro
@@ -379,6 +380,18 @@ describe('Payloads raros por HTTP: nunca 500', () => {
       }
     }
     expect(fallas).toEqual([]);
+  });
+
+  it('El Impostor en persona: sin sesión 401, datos raros 400 y una palabra por ronda (sin datos de la partida)', async () => {
+    await http().post('/impostor/local').send({ tematica: 'mezcla', rondas: 3 }).expect(401);
+    for (const body of [{ tematica: 'otra', rondas: 3 }, { tematica: 'mezcla', rondas: 4 }, { tematica: 'mezcla', rondas: '3' }, [], {}]) {
+      expect({ body, status: (await http().post('/impostor/local').set(as('A')).send(body)).status }).toEqual({ body, status: 400 });
+    }
+    const res = await http().post('/impostor/local').set(as('A')).send({ tematica: 'equipos', rondas: 5 }).expect(201);
+    expect(Object.keys(res.body)).toEqual(['palabras']);
+    expect(res.body.palabras).toHaveLength(5);
+    expect(new Set(res.body.palabras.map((p: { texto: string }) => p.texto)).size).toBe(5);
+    for (const p of res.body.palabras) expect(p).toEqual({ texto: expect.any(String), categoria: 'Equipo' });
   });
 
   it('el server sigue vivo', async () => {

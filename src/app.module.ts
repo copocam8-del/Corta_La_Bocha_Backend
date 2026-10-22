@@ -13,6 +13,7 @@ import { TriviaModule } from './trivia/trivia.module';
 import { DesafioModule } from './desafio-diario/desafio.module';
 import { SopaModule } from './sopa/sopa.module';
 import { MemotestModule } from './memotest/memotest.module';
+import { ImpostorModule } from './impostor/impostor.module';
 import { AdminModule } from './admin/admin.module';
 
 @Module({
@@ -31,6 +32,7 @@ import { AdminModule } from './admin/admin.module';
     DesafioModule,
     SopaModule,
     MemotestModule,
+    ImpostorModule,
     AdminModule,
   ],
 })

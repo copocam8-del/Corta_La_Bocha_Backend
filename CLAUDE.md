@@ -84,7 +84,7 @@ src/
   admin/               panel de administración del equipo (sólo lectura, ADMIN_EMAILS)
   rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
     modes/             un "modo" por juego: tutti-frutti, ahorcado, trivia, sopa, memotest, impostor (index.ts = registro)
-  impostor/            El Impostor: banco de palabras y reglas (sólo multijugador)
+  impostor/            El Impostor: banco de palabras, reglas y POST /impostor/local ("En persona")
   solo-matches/        partidas contra la IA
   tutti-frutti/        validación de respuestas (reglas en código + IA) y puntaje (scoring.ts)
   categories/          listado de categorías
@@ -205,13 +205,14 @@ prisma/
    (`DIFICULTADES` en `solo-quick.ts`). Sus respuestas pasan por la misma validación y el mismo puntaje.
    **Si agregás una respuesta al banco, corré `npx jest ai-answer-bank`** (verifica letra y duplicados).
    "Jugador Promesa" envejece: revisarla cada temporada.
+- `POST /impostor/local` (El Impostor en persona) también pide sesión y tiene límite de 20 por minuto.
 - `POST /tutti-frutti/validate-round` (una ronda suelta) pide sesión y tiene límite de 20 por minuto: cada llamada
   gasta créditos del proveedor de IA.
 
 ## Multijugador (Socket.IO)
 
 - Hay multijugador (sala privada con código, unirse con código y partida pública) para **Tutti Frutti, ahorcado,
-  trivia, sopa de letras, memotest y El Impostor** (este último, sólo multijugador). El desafío del día es individual.
+  trivia, sopa de letras, memotest y El Impostor** (que no tiene modo solo, pero sí "En persona" con un solo celular). El desafío del día es individual.
 - **Motor común** (`src/rooms/game-engine.ts`): salas, lobby, anfitrión, entradas/salidas, reconexión, "quedan menos de
   2" y el final (posiciones, estadísticas y logros una sola vez). **Cada juego es un modo** (`src/rooms/modes/*.mode.ts`,
   registro en `modes/index.ts`, tipos en `modes/types.ts`) que define sus opciones (`validSettings`), la configuración
@@ -362,7 +363,9 @@ prisma/
   marca como visto para todos. Los modos lo reciben en `deps.vistos` (opcional: sin eso eligen como siempre).
 - El **desafío del día no lo usa**: tiene que ser igual para todos (un test compara con las preguntas de antes).
 
-## El Impostor (`src/impostor/` + `src/rooms/modes/impostor.mode.ts`, sólo multijugador)
+## El Impostor (`src/impostor/` + `src/rooms/modes/impostor.mode.ts`)
+
+Dos modos: **Online** (salas por Socket.IO, lo de abajo) y **En persona** (un solo celular que se pasan; ver al final).
 
 - De 3 a 8 jugadores. Cada ronda el servidor elige una palabra (de `impostor-bank.ts`: jugadores, equipos, selecciones,
   estadios y DT; sólo nombres reales y muy conocidos, ≥ 40 por categoría, con `alias`) y un impostor entre los que
@@ -385,6 +388,12 @@ prisma/
   `extra.invisible`) e `impostor_detective` (votar bien 3 veces en una partida, `extra.aciertosVoto`).
 - **Si cambiás una opción (temáticas, rondas, segundos, mínimo), cambiala también en `src/games/multiConfig.ts` del frontend**
   (un test del frontend las compara si el backend está al lado).
+- **En persona**: todo el juego corre en el navegador (`src/games/impostor/` del frontend). El backend sólo da las
+  palabras: `POST /impostor/local {tematica, rondas}` (sesión, 20 por minuto por IP; temática de `TEMATICAS_IMPOSTOR`,
+  rondas 1/3/5 como números; cualquier otra cosa → 400) → `{ palabras: [{ texto, categoria }] }`, una por ronda, sin
+  repetir, del mismo banco y con `elegirPalabras` (la misma función que el online), priorizando lo que **ese usuario**
+  no vio y marcándolas como vistas. **No guarda partida ni cuenta** para estadísticas, ELO, ligas ni logros (el que tiene
+  el celular ve todas las palabras: no hay nada que proteger). Tests en `impostor-local.spec.ts` y en el e2e de seguridad.
 
 ## Logros
 
