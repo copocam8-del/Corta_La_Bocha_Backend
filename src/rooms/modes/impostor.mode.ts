@@ -1,6 +1,5 @@
-import { elegirUnaNoVista } from '../../games/vistos';
 import {
-  ADIVINANZA_MAX, contieneLaPalabra, elegirImpostor, esLaPalabra, limpiarTexto, masVotado, mezclar, nombreCategoria, palabrasDe,
+  ADIVINANZA_MAX, contieneLaPalabra, elegirImpostor, elegirPalabras, esLaPalabra, limpiarTexto, masVotado, mezclar, nombreCategoria,
   PISTA_MAX, PUNTOS, TEMATICAS_IMPOSTOR, type PalabraElegida, type TematicaImpostor,
 } from '../../impostor/impostor-rules';
 import { RoundMode } from './round-mode';
@@ -98,15 +97,8 @@ class ImpostorMode extends RoundMode {
   // las rondas (primero las que no vio nadie, sin repetir en la partida) y las guarda (una consulta)
   async start() {
     const jugadores = this.host.players().map((p) => p.userId);
-    const vistos = new Map(await this.deps.vistos?.leer(jugadores, 'impostor'));
-    const lista = palabrasDe(this.host.settings.tematica as TematicaImpostor);
-    const ahora = Date.now();
-    this.palabras = [];
-    for (let r = 0; r < this.total; r++) {
-      const w = elegirUnaNoVista(lista, (x) => x.texto, Math.random, vistos);
-      this.palabras.push(w);
-      vistos.set(w.texto, ahora + r); // para no repetirla en otra ronda
-    }
+    const vistos = await this.deps.vistos?.leer(jugadores, 'impostor');
+    this.palabras = elegirPalabras(this.host.settings.tematica as TematicaImpostor, this.total, vistos);
     void this.deps.vistos?.marcar(jugadores, 'impostor', this.palabras.map((w) => w.texto));
     return super.start();
   }

@@ -1,3 +1,4 @@
+import { elegirUnaNoVista, type Vistos } from '../games/vistos';
 import { BANCO_IMPOSTOR, NOMBRES_CATEGORIA, type CategoriaImpostor, type PalabraImpostor } from './impostor-bank';
 
 // Reglas de "El Impostor" que no dependen de la sala (se prueban solas en impostor.spec.ts).
@@ -20,6 +21,21 @@ export function palabrasDe(tematica: TematicaImpostor): PalabraElegida[] {
 }
 
 export const nombreCategoria = (c: CategoriaImpostor) => NOMBRES_CATEGORIA[c];
+
+// Una palabra por ronda: primero las que no vio nadie (vistos), sin repetir en la partida. La usan el
+// modo online (vistos de todos los jugadores) y "En persona" (vistos de quien tiene el celular).
+export function elegirPalabras(tematica: TematicaImpostor, rondas: number, vistos?: Vistos, azar: () => number = Math.random) {
+  const lista = palabrasDe(tematica);
+  const vistas = new Map(vistos);
+  const ahora = Date.now();
+  const out: PalabraElegida[] = [];
+  for (let r = 0; r < rondas; r++) {
+    const w = elegirUnaNoVista(lista, (x) => x.texto, azar, vistas);
+    out.push(w);
+    vistas.set(w.texto, ahora + r); // para no repetirla en otra ronda
+  }
+  return out;
+}
 
 // Sin tildes, sin mayúsculas y sólo letras y números ("Di María" → "dimaria", "Colo-Colo" → "colocolo"…)
 export function compactar(texto: string): string {
