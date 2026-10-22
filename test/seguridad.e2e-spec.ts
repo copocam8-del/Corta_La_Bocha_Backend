@@ -389,8 +389,12 @@ describe('Payloads raros por HTTP: nunca 500', () => {
 // ─────────────────────────────── 4. Payloads raros por Socket.IO ───────────────────────────────
 
 function conectar(who: 'A' | 'B'): Promise<Socket> {
+  return conectarConToken(tokens[who]);
+}
+
+function conectarConToken(token: string): Promise<Socket> {
   return new Promise((resolve, reject) => {
-    const s = io(baseUrl, { auth: { token: tokens[who] }, transports: ['websocket'], forceNew: true, reconnection: false });
+    const s = io(baseUrl, { auth: { token }, transports: ['websocket'], forceNew: true, reconnection: false });
     s.once('connect', () => resolve(s));
     s.once('connect_error', reject);
   });
@@ -512,6 +516,73 @@ describe('Payloads raros por Socket.IO: siempre { ok }, nunca se cae', () => {
     expect(fallas).toEqual([]);
     await emitir(a, 'room:leave', { code });
     await emitir(b, 'room:leave', { code });
+  });
+
+  // El Impostor necesita 3: se suma un usuario C. Además de los payloads raros (pista, voto y adivinar, cada
+  // uno en su etapa), controla de punta a punta que la palabra nunca le llegue al impostor.
+  it('jugando impostor (3 jugadores): payloads raros y la palabra nunca le llega al impostor', async () => {
+    const C = { ...A, email: `c-${RUN}@correo-e2e.com.ar`, username: `c_${RUN}`.slice(0, 30), password: 'gambeta-de-potrero-C' };
+    await http().post('/auth/register').send(C).expect(201);
+    const tokenC = (await http().post('/auth/login').send({ email: C.email, password: C.password }).expect(201)).body.access_token;
+    const c = await conectarConToken(tokenC);
+    type Vista = { rol?: string; palabra?: string | null; etapa?: string | null; turno?: string | null; pistas?: unknown[]; descubierto?: string | null };
+    type Estado = { phase?: string; me?: string; view?: Vista };
+    const sockets = [a, b, c];
+    const estados = new Map<Socket, Estado[]>(sockets.map((s) => [s, []]));
+    for (const s of sockets) s.on('room:state', (e: Estado) => estados.get(s)!.push(e));
+    const ultimo = (s: Socket) => estados.get(s)![estados.get(s)!.length - 1];
+    const enTodos = (cond: (e: Estado) => boolean) => Promise.all(sockets.map((s) => esperarEstado(s, cond as (e: { phase?: string }) => boolean)));
+
+    try {
+      const code = (await http().post('/rooms').set(as('A')).send({ game: 'impostor', tematica: 'mezcla', rounds: 1, seconds: 20 }).expect(201)).body.code;
+      for (const s of sockets) expect((await emitir(s, 'room:join', { code })).ok).toBe(true);
+      const jugando = enTodos((e) => e.phase === 'playing');
+      expect(await emitir(a, 'room:start', { code })).toEqual({ ok: true });
+      await jugando;
+
+      const impostor = sockets.find((s) => ultimo(s).view?.rol === 'impostor')!;
+      const grupo = sockets.filter((s) => s !== impostor);
+      const palabra = ultimo(grupo[0]).view!.palabra!;
+      expect(palabra).toEqual(expect.any(String));
+      const idDe = (s: Socket) => ultimo(s).me!;
+      const socketDe = (id: string) => sockets.find((s) => idDe(s) === id)!;
+
+      const fallas: string[] = [];
+      // Pistas: la base ya es inválida (31 caracteres) para que ninguna variante avance el turno
+      for (const s of sockets) fallas.push(...(await fuzzEvento(s, 'game:action', { code, type: 'pista', payload: { pista: 'x'.repeat(31) } })));
+      fallas.push(...(await fuzzEvento(a, 'game:action', { code, type: 'otra-cosa', payload: {} })));
+      // Dos vueltas de pistas, cada uno en su turno
+      let n = 0;
+      while (ultimo(a).view?.etapa === 'pistas') {
+        const turno = socketDe(ultimo(a).view!.turno!);
+        n++;
+        const llego = enTodos((e) => (e.view?.pistas?.length ?? 0) >= n);
+        expect(await emitir(turno, 'game:action', { code, type: 'pista', payload: { pista: `pista ${n}` } })).toEqual({ ok: true });
+        await llego;
+      }
+      expect(ultimo(a).view?.etapa).toBe('votacion');
+      // Votos raros (base: alguien que no está en la sala)
+      for (const s of sockets) fallas.push(...(await fuzzEvento(s, 'game:action', { code, type: 'voto', payload: { userId: UUID_AJENO } })));
+      // Todos votan al impostor (y él a uno del grupo) → lo descubren
+      const adivinanza = enTodos((e) => e.view?.etapa === 'adivinanza');
+      for (const s of grupo) expect(await emitir(s, 'game:action', { code, type: 'voto', payload: { userId: idDe(impostor) } })).toEqual({ ok: true });
+      expect(await emitir(impostor, 'game:action', { code, type: 'voto', payload: { userId: idDe(grupo[0]) } })).toEqual({ ok: true });
+      await adivinanza;
+      expect(ultimo(grupo[1]).view?.descubierto).toBe(idDe(impostor));
+      // Adivinanzas raras: del impostor (base inválida: 61 caracteres) y del grupo (nunca puede adivinar)
+      fallas.push(...(await fuzzEvento(impostor, 'game:action', { code, type: 'adivinar', payload: { respuesta: 'x'.repeat(61) } })));
+      fallas.push(...(await fuzzEvento(grupo[0], 'game:action', { code, type: 'adivinar', payload: { respuesta: palabra } })));
+      expect(fallas).toEqual([]);
+
+      // Hasta acá, NINGÚN estado que recibió el impostor tuvo la palabra
+      for (const e of estados.get(impostor)!) expect(JSON.stringify(e).toLowerCase()).not.toContain(palabra.toLowerCase());
+      const fin = enTodos((e) => e.phase === 'finished');
+      expect(await emitir(impostor, 'game:action', { code, type: 'adivinar', payload: { respuesta: 'zzz' } })).toEqual({ ok: true });
+      await fin;
+      for (const s of sockets) await emitir(s, 'room:leave', { code });
+    } finally {
+      c.disconnect();
+    }
   });
 
   it('cola pública con datos raros', async () => {

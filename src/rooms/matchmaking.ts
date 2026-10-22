@@ -1,16 +1,24 @@
 import { MODES } from './modes';
-import { isMultiGame, type MultiGameId, type Settings } from './modes/types';
+import { isMultiGame, minPlayersOf, type MultiGameId, type Settings } from './modes/types';
 
 // Cola pública: junta jugadores que eligieron el mismo juego, la misma temática (en Tutti Frutti)
 // y el mismo tamaño de partida. Cuando hay el mínimo, arranca una cuenta regresiva (QUEUE_WAIT_MS)
 // para que se sumen más; si se llena, arma la sala en el momento. Las partidas públicas tienen una
 // configuración fija por juego (publicSettings de cada modo: en Tutti Frutti, 3 rondas de 60 s).
+// El mínimo de cada grupo nunca es menor que el del juego (queueLimits).
 
 export const QUEUE_SIZES = {
   pocos: { min: 2, max: 4 },
   muchos: { min: 5, max: 8 },
 } as const;
 export type QueueSize = keyof typeof QUEUE_SIZES;
+
+// Límites de cada grupo: los de QUEUE_SIZES, pero nunca menos que el mínimo del juego
+// (El Impostor: pocos = 3–4, muchos = 5–8)
+export function queueLimits(game: MultiGameId, size: QueueSize) {
+  const { min, max } = QUEUE_SIZES[size];
+  return { min: Math.max(min, minPlayersOf(MODES[game])), max };
+}
 
 export const QUEUE_WAIT_MS = 10_000;
 export { PUBLIC_ROUNDS, PUBLIC_SECONDS } from './modes/tutti-frutti.mode';
@@ -95,7 +103,7 @@ export class Matchmaking {
   }
 
   private update(bucket: Bucket) {
-    const { min, max } = QUEUE_SIZES[bucket.size];
+    const { min, max } = queueLimits(bucket.game, bucket.size);
     if (bucket.entries.length >= max) {
       void this.form(bucket);
       return;
@@ -115,7 +123,7 @@ export class Matchmaking {
     if (bucket.timer) clearTimeout(bucket.timer);
     bucket.timer = undefined;
     bucket.startsAt = null;
-    const { min, max } = QUEUE_SIZES[bucket.size];
+    const { min, max } = queueLimits(bucket.game, bucket.size);
     if (bucket.entries.length < min) return this.broadcast(bucket);
 
     const group = bucket.entries.splice(0, max);
@@ -137,7 +145,7 @@ export class Matchmaking {
   }
 
   private broadcast(bucket: Bucket) {
-    const { min, max } = QUEUE_SIZES[bucket.size];
+    const { min, max } = queueLimits(bucket.game, bucket.size);
     const state: QueueState = {
       game: bucket.game,
       tematica: bucket.tematica,

@@ -10,11 +10,11 @@ import type { UnlockedAchievement } from '../../achievements/achievements.servic
 // ─────────────────────────────────────────────────────────────────────────────────────────────
 
 // Juegos que se pueden jugar en multijugador (el desafío del día es individual, no está acá)
-export const MULTI_GAMES = ['tutti_frutti', 'ahorcado', 'trivia', 'sopa_de_letras', 'memotest'] as const;
+export const MULTI_GAMES = ['tutti_frutti', 'ahorcado', 'trivia', 'sopa_de_letras', 'memotest', 'impostor'] as const;
 export type MultiGameId = (typeof MULTI_GAMES)[number];
 export const isMultiGame = (v: unknown): v is MultiGameId => typeof v === 'string' && (MULTI_GAMES as readonly string[]).includes(v);
 
-export const MIN_PLAYERS = 2;
+export const MIN_PLAYERS = 2; // por defecto; un juego puede pedir más (minPlayers: El Impostor, 3)
 export const MAX_PLAYERS = 8;
 
 export const COUNTDOWN_MS = 3_000; // "¡Preparados!" antes de cada ronda
@@ -170,6 +170,7 @@ export interface ModeDeps {
 
 export interface ModeDefinition {
   game: MultiGameId;
+  minPlayers?: number; // sin esto, MIN_PLAYERS
   maxPlayers: number;
   defaults: Settings;
   validSettings(s: Partial<Settings>): Settings | null;
@@ -194,5 +195,7 @@ export function rank<T extends { points: number }>(rows: T[]): (T & { position: 
     return { ...r, position };
   });
 }
+
+export const minPlayersOf = (def: ModeDefinition) => def.minPlayers ?? MIN_PLAYERS;
 
 export const pick = <T>(list: readonly T[], azar: () => number = Math.random): T => list[Math.floor(azar() * list.length)];

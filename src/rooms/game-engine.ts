@@ -1,7 +1,7 @@
 import type { UnlockedAchievement } from '../achievements/achievements.service';
 import { MODES } from './modes';
 import {
-  AUTOSTART_MS, fail, GAME_GRACE_MS, HOST_GRACE_MS, IN_GAME, LOBBY_GRACE_MS, MIN_PLAYERS,
+  AUTOSTART_MS, fail, GAME_GRACE_MS, HOST_GRACE_MS, IN_GAME, LOBBY_GRACE_MS, minPlayersOf,
   type GameMode, type LectorVistos, type MatchOutcome, type ModeHost, type MultiGameId, type Phase, type PlayerRef, type Result, type RoomStore,
   type Settings, type StoredPlayer, type StoredRoom, type Validator,
 } from './modes/types';
@@ -266,7 +266,8 @@ export class GameEngine {
       if (!room) return fail('Sala no encontrada.');
       if (room.hostUserId !== userId) return fail('Sólo el anfitrión puede arrancar la partida.');
       if (room.phase !== 'lobby') return fail('La partida ya empezó.');
-      if (this.connectedPlayers(room).length < MIN_PLAYERS) return fail(`Hacen falta al menos ${MIN_PLAYERS} jugadores conectados.`);
+      const min = this.minPlayers(room);
+      if (this.connectedPlayers(room).length < min) return fail(`Hacen falta al menos ${min} jugadores conectados.`);
       const problem = MODES[room.game].cannotStart?.(room.settings);
       if (problem) return fail(problem);
       await this.startMatch(room);
@@ -438,7 +439,7 @@ export class GameEngine {
     if (connected.length === all.length || timeUp) {
       room.autoStart = false;
       if (room.autoStartTimer) clearTimeout(room.autoStartTimer);
-      if (connected.length >= MIN_PLAYERS) {
+      if (connected.length >= this.minPlayers(room)) {
         for (const p of all) if (!p.connected) await this.removePlayer(room, p, false);
         await this.startMatch(room);
       } else {
@@ -526,18 +527,23 @@ export class GameEngine {
     };
   }
 
-  // Si quedan menos de 2 conectados durante la partida, se espera un rato y se termina
+  private minPlayers(room: Room) {
+    return minPlayersOf(MODES[room.game]);
+  }
+
+  // Si quedan menos del mínimo (2; en El Impostor, 3) conectados durante la partida, se espera un rato y se termina
   private checkPlayers(room: Room) {
     if (!IN_GAME.includes(room.phase)) return;
-    const enough = this.connectedPlayers(room).length >= MIN_PLAYERS;
+    const min = this.minPlayers(room);
+    const enough = this.connectedPlayers(room).length >= min;
     if (enough && room.lowPlayersTimer) {
       clearTimeout(room.lowPlayersTimer);
       room.lowPlayersTimer = undefined;
     } else if (!enough && !room.lowPlayersTimer) {
-      room.notice = 'Quedan menos de 2 jugadores: si nadie vuelve, la partida termina.';
+      room.notice = `Quedan menos de ${min} jugadores: si nadie vuelve, la partida termina.`;
       room.lowPlayersTimer = setTimeout(() => void this.withLock(room.code, async () => {
         room.lowPlayersTimer = undefined;
-        if (IN_GAME.includes(room.phase) && this.connectedPlayers(room).length < MIN_PLAYERS) {
+        if (IN_GAME.includes(room.phase) && this.connectedPlayers(room).length < min) {
           // Los que no volvieron se cuentan como que abandonaron
           for (const p of this.activePlayers(room)) if (!p.connected) p.left = true;
           await this.finishMatch(room, 'not_enough_players');
@@ -607,7 +613,7 @@ export class GameEngine {
     }
     const empatados = empate ? standings.filter((s) => s.result === 'draw').map((s) => s.username) : [];
     room.final = { reason, countsForStats, standings, empate, empatados, achievements };
-    room.notice = reason === 'not_enough_players' ? 'La partida terminó porque quedaron menos de 2 jugadores.' : null;
+    room.notice = reason === 'not_enough_players' ? `La partida terminó porque quedaron menos de ${this.minPlayers(room)} jugadores.` : null;
     this.broadcast(room);
   }
 
@@ -620,7 +626,7 @@ export class GameEngine {
       hostUserId: room.hostUserId,
       phase: room.phase,
       settings: room.settings,
-      minPlayers: MIN_PLAYERS,
+      minPlayers: this.minPlayers(room),
       maxPlayers: MODES[room.game].maxPlayers,
       serverNow: Date.now(),
       players: [...room.players.values()]

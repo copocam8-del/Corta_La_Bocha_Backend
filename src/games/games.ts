@@ -74,14 +74,14 @@ export const GAMES: GameInfo[] = [
     hasElo: false,
   },
   {
-    // Próximamente: se muestra en la pantalla de juegos pero todavía no se puede jugar.
-    // Cuando esté listo: available: true y multiplayer: true (y sumarlo a MULTI_GAMES).
+    // Sólo multijugador (de 3 a 8): no tiene modo solo. Todavía "Próximamente" en la pantalla de
+    // juegos: cuando esté probado, available: true.
     id: 'impostor',
     name: 'El Impostor',
     description: 'Todos reciben el mismo jugador menos uno. Dá pistas, votá y descubrí al impostor.',
     available: false,
-    path: '/impostor',
-    multiplayer: false,
+    path: '/juego/impostor',
+    multiplayer: true,
     hasElo: false,
   },
 ];
