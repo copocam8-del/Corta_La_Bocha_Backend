@@ -83,7 +83,8 @@ src/
   users/               perfil (/users/me)
   admin/               panel de administración del equipo (sólo lectura, ADMIN_EMAILS)
   rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
-    modes/             un "modo" por juego: tutti-frutti, ahorcado, trivia, sopa, memotest (index.ts = registro)
+    modes/             un "modo" por juego: tutti-frutti, ahorcado, trivia, sopa, memotest, impostor (index.ts = registro)
+  impostor/            El Impostor: banco de palabras y reglas (sólo multijugador)
   solo-matches/        partidas contra la IA
   tutti-frutti/        validación de respuestas (reglas en código + IA) y puntaje (scoring.ts)
   categories/          listado de categorías
@@ -210,7 +211,7 @@ prisma/
 ## Multijugador (Socket.IO)
 
 - Hay multijugador (sala privada con código, unirse con código y partida pública) para **Tutti Frutti, ahorcado,
-  trivia, sopa de letras y memotest**. El desafío del día es individual.
+  trivia, sopa de letras, memotest y El Impostor** (este último, sólo multijugador). El desafío del día es individual.
 - **Motor común** (`src/rooms/game-engine.ts`): salas, lobby, anfitrión, entradas/salidas, reconexión, "quedan menos de
   2" y el final (posiciones, estadísticas y logros una sola vez). **Cada juego es un modo** (`src/rooms/modes/*.mode.ts`,
   registro en `modes/index.ts`, tipos en `modes/types.ts`) que define sus opciones (`validSettings`), la configuración
@@ -226,8 +227,9 @@ prisma/
   | `ahorcado` | — | facil/medio/dificil | palabras 1/3/5 | 60/90/120 por palabra | misma palabra, cada uno con su pelota; puntos como solo + bonus 20/10/5 por orden de llegada; de los rivales sólo se ven errores y avance |
   | `sopa_de_letras` | temática | facil/medio/dificil | grillas 1/2/3 | 120–300 por grilla | misma grilla; cada palabra es del primero que la marca (5 + largo, × dificultad) |
   | `memotest` | tema | nivel | tableros 1/2/3 | 10/15/20 **por turno** | por turnos (máx. 4 jugadores); par = 10 puntos y seguís; si no, se ven 1,5 s y pasa el turno |
-- **Nunca viajan secretos**: la correcta de la trivia, la palabra del ahorcado, dónde están las palabras de la sopa o el
-  mazo del memotest llegan recién cuando corresponde (`view` se arma por jugador). Los tests lo controlan (`modes.spec.ts`).
+  | `impostor` | jugadores/equipos/selecciones/estadios/dt/mezcla | — | rondas 1/3/5 | 20/30/45 **por pista** | de 3 a 8; ver "El Impostor" más abajo |
+- **Nunca viajan secretos**: la correcta de la trivia, la palabra del ahorcado, dónde están las palabras de la sopa, el
+  mazo del memotest o la palabra y el impostor de El Impostor llegan recién cuando corresponde (`view` se arma por jugador). Los tests lo controlan (`modes.spec.ts`).
 - Tutti Frutti: el servidor sortea letra (de `letrasDe(temática)`, sin repetir
   en la partida) y categorías, controla el reloj y el ¡Basta! (corta para todos, sólo con todo completo), junta las
   respuestas, las valida con el mismo validador (UNA llamada por ronda para todos los jugadores) y puntúa con
@@ -238,14 +240,15 @@ prisma/
   antes de aceptar). El userId sale **siempre** del token. Eventos (todos con respuesta `{ ok, error }`):
   `room:join|leave|settings|start|again`, `round:answers {answers, final?}` y `round:basta {answers}` (Tutti Frutti),
   `game:action {type, payload}` (los demás: trivia `answer {opcion}`, ahorcado `letter {letra}` / `guess {respuesta}`,
-  sopa `mark {desde, hasta}`, memotest `flip {carta}`), `queue:join {game, tematica, size}`, `queue:leave`. El servidor manda `room:state` (estado completo, armado por jugador:
+  sopa `mark {desde, hasta}`, memotest `flip {carta}`, impostor `pista {pista}` / `voto {userId}` / `adivinar {respuesta}`), `queue:join {game, tematica, size}`, `queue:leave`. El servidor manda `room:state` (estado completo, armado por jugador:
   cada uno ve sólo sus respuestas), `queue:state` y `queue:matched {code}`.
 - HTTP: sólo `POST /rooms {game?, tematica?, dificultad?, rounds?, seconds?}` (crea sala privada, devuelve `{code}`; sin
   `game` es Tutti Frutti) y `GET /rooms/:code`. La sala guarda de qué juego es (`rooms.game`, migración
   `20261013120000_salas_por_juego`).
   La API vieja por votos (start/answers/close/vote/tally/finish) se borró. La tabla `votes` quedó sin uso: con IA como
   árbitro y ranking/ELO, los votos entre jugadores se pueden arreglar entre amigos.
-- Reglas: 2 a 8 jugadores (memotest: 2 a 4). Desconexión en el lobby → sale a los 15 s.
+- Reglas: 2 a 8 jugadores (memotest: 2 a 4; El Impostor: 3 a 8). El mínimo de cada juego es `minPlayers` del modo (sin eso,
+  `MIN_PLAYERS` = 2): lo usan arrancar, la cola pública y "quedan menos de N" en plena partida. Desconexión en el lobby → sale a los 15 s.
   Recarga en partida → vuelve con lo que había escrito. Anfitrión desconectado 10 s → pasa al siguiente. Menos de 2
   conectados por 20 s → termina (los que no volvieron cuentan como abandono = perdida).
 - Abandonar (botón Volver / `room:leave`) en plena partida = perdida, y a los demás les llega "X abandonó la partida."
@@ -262,13 +265,14 @@ prisma/
   "¡Empate!". Un empate más abajo no cambia nada.
   Si la IA no validó algo (Tutti Frutti) o no se jugó ninguna ronda, no cuenta.
 - Cola pública (`matchmaking.ts`): por juego, temática (sólo Tutti Frutti) y tamaño (`pocos` 2–4, `muchos` 5–8; el
-  memotest sólo `pocos`); con el mínimo espera 10 s por más y arma la sala con la configuración pública del juego
+  memotest sólo `pocos`; El Impostor `pocos` 3–4: el mínimo nunca baja del del juego, `queueLimits`); con el mínimo espera 10 s por más y arma la sala con la configuración pública del juego
   (Tutti Frutti: 3 rondas de 60 s; sopa y memotest: temática al azar), que arranca sola cuando entran todos (o a los 15 s con ≥2).
 
 ## Plataforma de juegos
 
 - Catálogo en `src/games/games.ts` (`GET /games`, público): `tutti_frutti`, `ahorcado`, `trivia`, `trivia_diaria`,
-  `sopa_de_letras`, `memotest`. **Nunca cambies el id de un juego** (queda en la base). `available: false` = "Próximamente".
+  `sopa_de_letras`, `memotest`, `impostor`. **Nunca cambies el id de un juego** (queda en la base). `available: false` = "Próximamente"
+  (El Impostor sigue así hasta que el equipo lo pruebe: el backend igual deja crear salas, el frontend sólo esconde la tarjeta).
 - `matches.game` dice de qué juego es cada partida y `matches.state` (JSON) guarda el estado que sólo conoce el
   servidor (palabra, respuestas correctas…). **Nunca mandes `state` entero al navegador.**
 - `game_stats`: estadísticas por usuario y juego (partidas, ganadas, puntos, mejor puntaje, rachas). Los totales
@@ -344,7 +348,7 @@ prisma/
 
 ## Que no se repitan preguntas ni palabras
 
-- Trivia, ahorcado y sopa de letras (solos y en multijugador) priorizan lo que el usuario **no vio**. Lo visto se
+- Trivia, ahorcado, sopa de letras (solos y en multijugador) y El Impostor priorizan lo que el usuario **no vio**. Lo visto se
   guarda por usuario y juego en la tabla `contenido_visto` (`user_id`, `game`, `item_id`, `seen_at`; migración
   `20261013140000_contenido_visto`). `item_id`: id de la pregunta, texto de la palabra del ahorcado o palabra de la sopa.
 - `ContenidoVistoService` (`src/games/contenido-visto.service.ts`): `leer(userIds, game)` es UNA consulta (`groupBy`,
@@ -358,6 +362,30 @@ prisma/
   marca como visto para todos. Los modos lo reciben en `deps.vistos` (opcional: sin eso eligen como siempre).
 - El **desafío del día no lo usa**: tiene que ser igual para todos (un test compara con las preguntas de antes).
 
+## El Impostor (`src/impostor/` + `src/rooms/modes/impostor.mode.ts`, sólo multijugador)
+
+- De 3 a 8 jugadores. Cada ronda el servidor elige una palabra (de `impostor-bank.ts`: jugadores, equipos, selecciones,
+  estadios y DT; sólo nombres reales y muy conocidos, ≥ 40 por categoría, con `alias`) y un impostor entre los que
+  **menos veces lo fueron** en la partida (`elegirImpostor`). Palabras de todas las rondas al arrancar, con
+  `ContenidoVistoService` (`game = 'impostor'`, `item_id` = texto de la palabra).
+- Todos ven la palabra menos el impostor (`rol: 'impostor'`, `palabra: null`, sólo la categoría). Etapas dentro de la ronda:
+  **pistas** (orden al azar, 2 vueltas, una pista de hasta 30 caracteres por turno; si se acaba el tiempo pasa sin pista;
+  los que se fueron no tienen turno) → **votación** (30 s, uno por jugador, no a uno mismo; se cierra antes si votaron todos
+  los conectados) → si el más votado (uno solo: empate = el impostor zafa) es el impostor, **adivinanza** (20 s, un intento,
+  vale el nombre o un alias sin tildes ni mayúsculas) → resultados (10 s).
+- Pista con la palabra (el nombre, un alias o cualquier palabra suya de 4+ letras, sin tildes/espacios/signos) → rechazada,
+  **salvo al impostor**: si se la rechazáramos sabría que adivinó; como al grupo nunca se le acepta, una pista con la
+  palabra sólo puede ser del impostor.
+- Puntos: si ganan los demás, 10 cada uno + 5 a quien votó al impostor; si gana el impostor, 30 (zafó) o 20 (lo
+  descubrieron pero adivinó). Si el impostor abandona, ganan los demás.
+- **Qué viaja**: hasta que se cierra la votación nadie sabe quién es el impostor (`descubierto` y `revelada` en null; de
+  la votación sólo quién votó, nunca a quién). La palabra le llega al impostor recién en `revelada`. `modes.spec.ts`
+  compara lo que ve cada uno (el grupo ve exactamente lo mismo) y el e2e de seguridad lo controla por Socket.IO con 3 usuarios.
+- Logros: `impostor_multi` (ganar la partida), `impostor_invisible` (ganar una ronda de impostor sin recibir votos,
+  `extra.invisible`) e `impostor_detective` (votar bien 3 veces en una partida, `extra.aciertosVoto`).
+- **Si cambiás una opción (temáticas, rondas, segundos, mínimo), cambiala también en `src/games/multiConfig.ts` del frontend**
+  (un test del frontend las compara si el backend está al lado).
+
 ## Logros
 
 - Definiciones en `src/achievements/achievements.definitions.ts` (condición = función sobre las estadísticas y la
@@ -365,7 +393,7 @@ prisma/
   las estadísticas del juego (`gameMatchesPlayed`, …) y datos propios de la partida en `extra`. En la base (`user_achievements`) sólo se guarda cuál y cuándo.
   **Nunca cambies el id de un logro existente.**
 - Cada juego nuevo tiene 3 logros jugando solo y 1 por ganar en multijugador (`ahorcado_multi`, `trivia_multi`,
-  `sopa_multi`, `memotest_multi`). En multijugador, la trivia y el ahorcado pasan `extra` (aciertos, errores…) así
+  `sopa_multi`, `memotest_multi`). El Impostor no tiene modo solo: sus 3 son de multijugador (ver "El Impostor"). En multijugador, la trivia y el ahorcado pasan `extra` (aciertos, errores…) así
   también valen sus logros de "partida perfecta".
 - Se otorgan al terminar una partida (solo o multijugador), dentro de la misma transacción que las
   estadísticas (`AchievementsService.unlockFor`). `GET /users/me/achievements` los lista todos.

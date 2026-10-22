@@ -249,6 +249,28 @@ export const ACHIEVEMENTS: AchievementDefinition[] = [
     game: 'memotest',
     isUnlocked: (c) => c.mode === 'multiplayer' && c.won,
   },
+  // ── El Impostor (sólo multijugador) ──
+  {
+    id: 'impostor_multi',
+    name: 'El que no se come el amague',
+    description: 'Ganá una partida de El Impostor.',
+    game: 'impostor',
+    isUnlocked: (c) => c.mode === 'multiplayer' && c.won,
+  },
+  {
+    id: 'impostor_invisible',
+    name: 'Invisible',
+    description: 'Ganá una ronda de impostor sin recibir ningún voto.',
+    game: 'impostor',
+    isUnlocked: (c) => c.extra?.invisible === true,
+  },
+  {
+    id: 'impostor_detective',
+    name: 'Detective',
+    description: 'Votá bien al impostor 3 veces en una misma partida.',
+    game: 'impostor',
+    isUnlocked: (c) => Number(c.extra?.aciertosVoto ?? 0) >= 3,
+  },
 ];
 
 export const ACHIEVEMENT_IDS = ACHIEVEMENTS.map((a) => a.id);

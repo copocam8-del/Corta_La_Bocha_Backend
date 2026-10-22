@@ -403,3 +403,296 @@ describe('cola pública por juego', () => {
     expect(s.state('a')).toMatchObject({ game: 'trivia', phase: 'countdown', settings: MODES.trivia.publicSettings('') });
   });
 });
+
+// ── El Impostor ─────────────────────────────────────────────────────────────────────────────
+describe('El Impostor multijugador', () => {
+  const TRES = ['a', 'b', 'c'];
+
+  async function partida(settings: Partial<Settings> = {}, users = TRES) {
+    const s = setup();
+    const code = await sala(s, 'impostor', { rounds: 1, seconds: 20, ...settings }, users);
+    await arrancar(s, code);
+    const impostor = users.find((u) => view(s, u).rol === 'impostor')!;
+    const grupo = users.filter((u) => u !== impostor);
+    const palabra: string = view(s, grupo[0]).palabra;
+    return { s, code, impostor, grupo, palabra, users };
+  }
+
+  // Todos dan su pista en su turno (las dos vueltas) hasta que arranca la votación
+  async function darPistas(s: S, code: string, users: string[]) {
+    let i = 0;
+    while (view(s, users[0]).etapa === 'pistas') {
+      const turno = view(s, users[0]).turno;
+      expect(await s.engine.action(code, turno, 'pista', { pista: `pista ${++i}` })).toEqual({ ok: true });
+    }
+    expect(view(s, users[0]).etapa).toBe('votacion');
+  }
+
+  // Lo que ve cada uno sin lo propio (su voto)
+  const publico = (s: S, u: string) => {
+    const { miVoto: _miVoto, ...resto } = view(s, u);
+    return resto;
+  };
+
+  // La palabra no aparece en NINGUNA parte del estado que recibe el impostor
+  const noLaVe = (s: S, impostor: string, palabra: string) =>
+    expect(JSON.stringify(s.state(impostor)).toLowerCase()).not.toContain(palabra.toLowerCase());
+
+  it('es de 3 a 8 jugadores: con 2 no arranca', async () => {
+    const s = setup();
+    const code = await sala(s, 'impostor', {}, ['a', 'b']);
+    expect(s.state('a')).toMatchObject({ minPlayers: 3, maxPlayers: 8 });
+    expect(await s.engine.start(code, 'a')).toMatchObject({ ok: false, error: 'Hacen falta al menos 3 jugadores conectados.' });
+    await s.engine.join(code, { userId: 'c' });
+    expect(await s.engine.start(code, 'a')).toEqual({ ok: true });
+  });
+
+  it('valida las opciones de la sala', async () => {
+    const s = setup();
+    for (const mala of [{ tematica: 'clubes' }, { rounds: 2 }, { seconds: 60 }]) {
+      expect(await s.engine.createPrivateRoom('a', mala, 'impostor')).toMatchObject({ ok: false });
+    }
+    const code = await sala(s, 'impostor', { tematica: 'dt', rounds: 5, seconds: 45 }, TRES);
+    expect(s.state('b').settings).toEqual({ tematica: 'dt', rounds: 5, seconds: 45 });
+    expect(await s.engine.updateSettings(code, 'a', { tematica: 'mezcla' })).toEqual({ ok: true });
+  });
+
+  it('la palabra NUNCA le llega al impostor y nadie sabe quién es hasta que se cierra la votación', async () => {
+    const s = setup();
+    const users = ['a', 'b', 'c', 'd'];
+    const code = await sala(s, 'impostor', { rounds: 1, seconds: 20 }, users);
+    expect(await s.engine.start(code, 'a')).toEqual({ ok: true });
+    // Cuenta regresiva: nadie sabe nada todavía
+    for (const u of users) expect(view(s, u)).toMatchObject({ rol: null, palabra: null, categoria: null });
+    await tick(COUNTDOWN_MS);
+
+    const impostor = users.find((u) => view(s, u).rol === 'impostor')!;
+    const grupo = users.filter((u) => u !== impostor);
+    const palabra: string = view(s, grupo[0]).palabra;
+    expect(users.filter((u) => view(s, u).rol === 'impostor')).toHaveLength(1);
+    expect(view(s, impostor)).toMatchObject({ rol: 'impostor', palabra: null, categoria: expect.any(String) });
+    for (const u of grupo) expect(view(s, u)).toMatchObject({ rol: 'grupo', palabra, categoria: view(s, impostor).categoria });
+
+    const controlar = () => {
+      noLaVe(s, impostor, palabra);
+      // Los del grupo ven exactamente lo mismo: nada los distingue entre sí
+      for (const u of grupo.slice(1)) expect(publico(s, u)).toEqual(publico(s, grupo[0]));
+      // Y lo público del impostor es igual al del grupo (salvo su rol y la palabra)
+      const { rol: _r, palabra: _p, ...delImpostor } = publico(s, impostor);
+      const { rol: _r2, palabra: _p2, ...delGrupo } = publico(s, grupo[0]);
+      expect(delImpostor).toEqual(delGrupo);
+      for (const u of users) expect(view(s, u)).toMatchObject({ descubierto: null, revelada: null });
+    };
+    controlar();
+    // Pistas (dos vueltas de 4)
+    let i = 0;
+    while (view(s, 'a').etapa === 'pistas') {
+      await s.engine.action(code, view(s, 'a').turno, 'pista', { pista: `pista ${++i}` });
+      controlar();
+    }
+    expect(i).toBe(8);
+    // Votación: se ve quién votó, nunca a quién
+    await s.engine.action(code, grupo[0], 'voto', { userId: impostor });
+    await s.engine.action(code, impostor, 'voto', { userId: grupo[0] });
+    controlar();
+    expect([...view(s, grupo[1]).votaron].sort()).toEqual([grupo[0], impostor].sort());
+    expect(view(s, grupo[1]).miVoto).toBeNull();
+    expect(view(s, grupo[0]).miVoto).toBe(impostor);
+    // Votan los que faltan → lo descubren: ahí sí todos saben quién es (la palabra sigue sin llegarle)
+    await s.engine.action(code, grupo[1], 'voto', { userId: impostor });
+    await s.engine.action(code, grupo[2], 'voto', { userId: impostor }); // 3 a 1: lo descubren
+    for (const u of users) expect(view(s, u)).toMatchObject({ etapa: 'adivinanza', descubierto: impostor });
+    noLaVe(s, impostor, palabra);
+    // Recién al terminar la ronda viaja la palabra (a todos)
+    await s.engine.action(code, impostor, 'adivinar', { respuesta: 'cualquier cosa' });
+    expect(s.state(impostor).phase).toBe('finished');
+    expect(view(s, impostor).revelada).toMatchObject({ palabra, impostor });
+  });
+
+  it('pistas por turnos: sólo el del turno, hasta 30 caracteres, sin la palabra; si se acaba el tiempo pasa sin pista', async () => {
+    const { s, code, impostor, palabra } = await partida();
+    const turno: string = view(s, 'a').turno;
+    const otro = TRES.find((u) => u !== turno)!;
+    expect(await s.engine.action(code, otro, 'pista', { pista: 'hola' })).toMatchObject({ ok: false, error: 'No es tu turno.' });
+    expect(await s.engine.action(code, turno, 'pista', { pista: 'x'.repeat(31) })).toMatchObject({ ok: false });
+    for (const raro of [null, undefined, 42, 'texto', [], {}, { pista: null }, { pista: 5 }, { pista: { a: 1 } }, { pista: ['a'] }, { pista: '   ' }]) {
+      expect(await s.engine.action(code, turno, 'pista', raro)).toMatchObject({ ok: false });
+    }
+    // Al grupo no se le acepta una pista con la palabra (aunque cambie mayúsculas)
+    if (turno !== impostor) {
+      expect(await s.engine.action(code, turno, 'pista', { pista: `es ${palabra.toUpperCase()}` })).toMatchObject({
+        ok: false,
+        error: 'Tu pista no puede tener la palabra secreta.',
+      });
+    }
+    expect(await s.engine.action(code, turno, 'pista', { pista: 'x'.repeat(30) })).toEqual({ ok: true });
+    expect(view(s, 'a').pistas).toEqual([{ userId: turno, vuelta: 1, texto: 'x'.repeat(30) }]);
+    // El siguiente no escribe: pasa sin pista
+    const siguiente: string = view(s, 'a').turno;
+    expect(siguiente).not.toBe(turno);
+    await tick(20_000 + 600);
+    expect(view(s, 'a').pistas[1]).toEqual({ userId: siguiente, vuelta: 1, texto: null });
+    expect(view(s, 'a').turno).not.toBe(siguiente);
+  });
+
+  it('al impostor no se le revisa la pista (si se la rechazáramos, sabría que adivinó)', async () => {
+    const { s, code, impostor, grupo, palabra } = await partida();
+    // Pasan los turnos hasta que le toca al impostor
+    while (view(s, 'a').turno !== impostor) await s.engine.action(code, view(s, 'a').turno, 'pista', { pista: 'algo' });
+    expect(await s.engine.action(code, impostor, 'pista', { pista: palabra.slice(0, 30) })).toEqual({ ok: true });
+    expect(grupo).toHaveLength(2);
+  });
+
+  it('si abandona el del turno, pasa al siguiente; si abandona el impostor, ganan los demás', async () => {
+    const { s, code, impostor, grupo } = await partida({}, ['a', 'b', 'c', 'd']);
+    const turno: string = view(s, 'a').turno;
+    if (turno !== impostor) {
+      await s.engine.leave(code, turno);
+      expect(view(s, impostor).pistas).toEqual([{ userId: turno, vuelta: 1, texto: null }]);
+    }
+    await s.engine.leave(code, impostor);
+    const r = view(s, grupo.find((u) => u !== turno)!).revelada;
+    expect(r).toMatchObject({ impostor, ganador: 'grupo', motivo: 'abandono' });
+  });
+
+  it('votación: no a uno mismo ni a cualquiera, una sola vez; empate = el impostor zafa (30)', async () => {
+    const { s, code, impostor, grupo } = await partida();
+    expect(await s.engine.action(code, grupo[0], 'voto', { userId: impostor })).toMatchObject({ ok: false, error: 'Ahora no se vota.' });
+    await darPistas(s, code, TRES);
+    expect(view(s, 'a').hasta).toBeGreaterThan(Date.now());
+    for (const raro of [null, 7, 'b', {}, { userId: 5 }, { userId: 'zz' }, { userId: ['b'] }, { userId: { b: 1 } }]) {
+      expect(await s.engine.action(code, grupo[0], 'voto', raro)).toMatchObject({ ok: false });
+    }
+    expect(await s.engine.action(code, grupo[0], 'voto', { userId: grupo[0] })).toMatchObject({ ok: false, error: 'No te podés votar a vos.' });
+    expect(await s.engine.action(code, grupo[0], 'voto', { userId: impostor })).toEqual({ ok: true });
+    expect(await s.engine.action(code, grupo[0], 'voto', { userId: grupo[1] })).toMatchObject({ ok: false, error: 'Ya votaste.' });
+    expect(await s.engine.action(code, grupo[0], 'adivinar', { respuesta: 'x' })).toMatchObject({ ok: false });
+    await s.engine.action(code, grupo[1], 'voto', { userId: grupo[0] });
+    await s.engine.action(code, impostor, 'voto', { userId: grupo[1] });
+    // 1 voto para cada uno = empate → el impostor zafa
+    expect(s.state('a').phase).toBe('finished');
+    expect(view(s, 'a').revelada).toMatchObject({ ganador: 'impostor', motivo: 'zafo', acusado: null, puntos: { [impostor]: 30 } });
+  });
+
+  it('lo descubren y no adivina a tiempo: 10 a cada uno del grupo + 5 a quien lo votó; el impostor 0', async () => {
+    const { s, code, impostor, grupo } = await partida();
+    await darPistas(s, code, TRES);
+    await s.engine.action(code, grupo[0], 'voto', { userId: impostor });
+    await s.engine.action(code, grupo[1], 'voto', { userId: grupo[0] });
+    await s.engine.action(code, impostor, 'voto', { userId: grupo[0] });
+    // grupo[0] tiene 2 votos: no es el impostor → zafa. Otra partida para el caso "lo descubren":
+    expect(view(s, 'a').revelada).toMatchObject({ ganador: 'impostor', motivo: 'zafo', acusado: grupo[0] });
+
+    const p = await partida();
+    await darPistas(p.s, p.code, TRES);
+    await p.s.engine.action(p.code, p.grupo[0], 'voto', { userId: p.impostor });
+    await p.s.engine.action(p.code, p.grupo[1], 'voto', { userId: p.impostor });
+    await p.s.engine.action(p.code, p.impostor, 'voto', { userId: p.grupo[0] });
+    expect(view(p.s, p.grupo[0])).toMatchObject({ etapa: 'adivinanza', descubierto: p.impostor });
+    expect(await p.s.engine.action(p.code, p.grupo[0], 'adivinar', { respuesta: 'x' })).toMatchObject({ ok: false, error: 'Sólo el impostor puede adivinar.' });
+    for (const raro of [null, {}, { respuesta: 3 }, { respuesta: '' }, { respuesta: 'x'.repeat(61) }]) {
+      expect(await p.s.engine.action(p.code, p.impostor, 'adivinar', raro)).toMatchObject({ ok: false });
+    }
+    await tick(20_000 + 600);
+    const st = p.s.state(p.grupo[0]);
+    expect(st.phase).toBe('finished');
+    expect(view(p.s, p.grupo[0]).revelada).toMatchObject({ ganador: 'grupo', motivo: 'descubierto', acerto: false });
+    const puntos = Object.fromEntries(st.players.map((x) => [x.userId, x.score]));
+    expect(puntos).toEqual({ [p.grupo[0]]: 15, [p.grupo[1]]: 15, [p.impostor]: 0 });
+    // Empate arriba (15 y 15): nadie gana la partida
+    expect(st.final!.empate).toBe(true);
+  });
+
+  it('lo descubren pero adivina la palabra (sin tildes ni mayúsculas): gana igual con 20', async () => {
+    const { s, code, impostor, grupo, palabra } = await partida();
+    await darPistas(s, code, TRES);
+    await s.engine.action(code, grupo[0], 'voto', { userId: impostor });
+    await s.engine.action(code, grupo[1], 'voto', { userId: impostor });
+    await s.engine.action(code, impostor, 'voto', { userId: grupo[0] });
+    expect(await s.engine.action(code, impostor, 'adivinar', { respuesta: `  ${palabra.toUpperCase()} ` })).toEqual({ ok: true });
+    expect(view(s, grupo[0]).revelada).toMatchObject({ ganador: 'impostor', motivo: 'adivino', acerto: true, puntos: { [impostor]: 20 } });
+    expect(s.state('a').final!.standings[0]).toMatchObject({ userId: impostor, points: 20, won: true });
+  });
+
+  it('si nadie lo vota, gana 30 y cuenta como "invisible" para el logro', async () => {
+    const { s, code, impostor, grupo } = await partida();
+    await darPistas(s, code, TRES);
+    await s.engine.action(code, grupo[0], 'voto', { userId: grupo[1] });
+    await s.engine.action(code, grupo[1], 'voto', { userId: grupo[0] });
+    await s.engine.action(code, impostor, 'voto', { userId: grupo[0] });
+    expect(view(s, 'a').revelada).toMatchObject({ ganador: 'impostor', motivo: 'zafo', acusado: grupo[0], puntos: { [impostor]: 30 } });
+    expect(s.store.finishMatch).toHaveBeenCalledWith('match1', expect.any(String), expect.any(Array), true, 'impostor');
+    const filas = (s.store.finishMatch.mock.calls[0] as unknown[])[2] as { userId: string; won: boolean; extra?: Record<string, unknown> }[];
+    expect(filas.find((f) => f.userId === impostor)).toMatchObject({ won: true, extra: { invisible: true, aciertosVoto: 0 } });
+    expect(filas.find((f) => f.userId === grupo[0])).toMatchObject({ won: false, extra: { invisible: false } });
+  });
+
+  it('si se acaba el tiempo de votar, se cierra con los votos que hay', async () => {
+    const { s, code, impostor, grupo } = await partida();
+    await darPistas(s, code, TRES);
+    await s.engine.action(code, grupo[0], 'voto', { userId: impostor });
+    await tick(30_000 + 600);
+    expect(view(s, 'a')).toMatchObject({ etapa: 'adivinanza', descubierto: impostor });
+  });
+
+  it('el impostor no es siempre el mismo: en 3 rondas con 3 jugadores le toca a cada uno; cuenta los votos acertados', async () => {
+    const s = setup();
+    const code = await sala(s, 'impostor', { rounds: 3, seconds: 20 }, TRES);
+    await arrancar(s, code);
+    const impostores: string[] = [];
+    const palabras: string[] = [];
+    for (let r = 1; r <= 3; r++) {
+      if (r > 1) {
+        await tick(10_000 + COUNTDOWN_MS);
+        expect(view(s, 'a').numero).toBe(r);
+      }
+      const imp = TRES.find((u) => view(s, u).rol === 'impostor')!;
+      impostores.push(imp);
+      palabras.push(view(s, TRES.find((u) => u !== imp)!).palabra);
+      await darPistas(s, code, TRES);
+      for (const u of TRES) await s.engine.action(code, u, 'voto', { userId: u === imp ? TRES.find((x) => x !== u)! : imp });
+      await s.engine.action(code, imp, 'adivinar', { respuesta: 'no sé' });
+    }
+    expect([...impostores].sort()).toEqual(TRES);
+    expect(new Set(palabras).size).toBe(3); // sin repetir palabras en la partida
+    expect(s.state('a').phase).toBe('finished');
+    const filas = (s.store.finishMatch.mock.calls[0] as unknown[])[2] as { userId: string; extra?: Record<string, unknown> }[];
+    for (const f of filas) expect(f.extra).toMatchObject({ aciertosVoto: 2 }); // votó bien las 2 rondas en que no era impostor
+  });
+
+  it('usa "contenido visto": lee lo de todos los jugadores y marca las palabras de la partida', async () => {
+    const store = fakeStore();
+    const vistos = { leer: jest.fn(async () => new Map<string, number>()), marcar: jest.fn(async () => undefined) };
+    const engine = new GameEngine(store, { validateAnswers: jest.fn() }, { sendState: () => undefined }, () => {}, vistos);
+    const res = await engine.createPrivateRoom('a', { rounds: 3 }, 'impostor');
+    if (!res.ok) throw new Error(res.error);
+    for (const u of TRES) await engine.join(res.code!, { userId: u });
+    await engine.start(res.code!, 'a');
+    expect(vistos.leer).toHaveBeenCalledWith(TRES, 'impostor');
+    expect(vistos.marcar).toHaveBeenCalledWith(TRES, 'impostor', expect.any(Array));
+    expect((vistos.marcar.mock.calls[0] as unknown[])[2]).toHaveLength(3);
+  });
+
+  it('cola pública: pocos = 3 a 4 (con 2 no arma) y muchos = 5 a 8', async () => {
+    const s = setup();
+    const matched: Record<string, string> = {};
+    const estados: Record<string, { min: number; max: number }> = {};
+    const queue = new Matchmaking((ids, settings, game) => s.engine.createQueueRoom(ids, settings, game), {
+      sendQueueState: (u, st) => (estados[u] = st),
+      sendMatched: (u, code) => (matched[u] = code),
+    });
+    queue.join({ userId: 'a', username: 'A' }, '', 'pocos', 'impostor');
+    queue.join({ userId: 'b', username: 'B' }, '', 'pocos', 'impostor');
+    expect(estados.a).toMatchObject({ min: 3, max: 4 });
+    await tick(QUEUE_WAIT_MS);
+    expect(matched.a).toBeUndefined();
+    queue.join({ userId: 'c', username: 'C' }, '', 'pocos', 'impostor');
+    await tick(QUEUE_WAIT_MS);
+    expect(matched.a).toBeDefined();
+    expect(matched.c).toBe(matched.a);
+    queue.join({ userId: 'x', username: 'X' }, '', 'muchos', 'impostor');
+    expect(estados.x).toMatchObject({ min: 5, max: 8 });
+    for (const u of TRES) await s.engine.join(matched.a, { userId: u });
+    expect(s.state('a')).toMatchObject({ game: 'impostor', phase: 'countdown', settings: MODES.impostor.publicSettings('') });
+  });
+});

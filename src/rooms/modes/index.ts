@@ -1,4 +1,5 @@
 import { ahorcado } from './ahorcado.mode';
+import { impostor } from './impostor.mode';
 import { memotest } from './memotest.mode';
 import { sopa } from './sopa.mode';
 import { trivia } from './trivia.mode';
@@ -12,6 +13,7 @@ export const MODES: Record<MultiGameId, ModeDefinition> = {
   trivia,
   sopa_de_letras: sopa,
   memotest,
+  impostor,
 };
 
 export * from './types';
