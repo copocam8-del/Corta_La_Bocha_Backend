@@ -99,6 +99,16 @@ describe('TuttiFruttiValidatorService (con OpenAI)', () => {
       expect(res.get('corta')).toMatchObject({ status: 'invalid', reason: 'La respuesta es demasiado corta.' });
       expect(res.get('letra')).toMatchObject({ status: 'invalid', reason: 'No empieza con la letra M.' });
     });
+
+    it('una respuesta ofensiva no se le manda a la IA y no vale', async () => {
+      const res = await crear().validateAnswers('M', [
+        { key: 'mala', category: 'Jugador', answer: 'M13rd4' },
+        { key: 'mala2', category: 'Equipo', answer: 'm.i.e.r.d.a' },
+      ]);
+      expect(fetchMock).not.toHaveBeenCalled();
+      expect(res.get('mala')).toEqual({ status: 'invalid', canonical: null, reason: 'Esa respuesta no está permitida.' });
+      expect(res.get('mala2')).toMatchObject({ status: 'invalid' });
+    });
   });
 
   describe('resultados', () => {

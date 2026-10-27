@@ -16,6 +16,7 @@ const registroValido = {
   birthDate: '1987-06-24',
   email: 'leo@mail.com',
   password: 'gambeta-de-potrero',
+  aceptaTerminos: true,
 };
 
 describe('/auth por HTTP', () => {
@@ -92,6 +93,16 @@ describe('/auth por HTTP', () => {
     });
   });
 
+  it('sin aceptar los Términos → 400 con el mensaje y no se crea la cuenta', async () => {
+    const { aceptaTerminos, ...sinAceptar } = registroValido;
+    expect(aceptaTerminos).toBe(true);
+    for (const body of [sinAceptar, { ...registroValido, aceptaTerminos: false }]) {
+      const res = await request(app.getHttpServer()).post('/auth/register').send(body).expect(400);
+      expect(res.body.errors.aceptaTerminos).toEqual(['Tenés que aceptar los Términos y la Política de privacidad.']);
+    }
+    expect(authService.register).not.toHaveBeenCalled();
+  });
+
   it.each([[[]], [['a', 1]], [123], ['texto']])('un body que no es un objeto (%j) → 400, nunca llega al servicio', async (body) => {
     const res = await request(app.getHttpServer())
       .post('/auth/register')
@@ -119,6 +130,44 @@ describe('/auth por HTTP', () => {
         .post('/auth/register')
         .send({ ...registroValido, email: 'leo@gmail.com' })
         .expect(201);
+    });
+  });
+
+  describe('filtro de malas palabras', () => {
+    it.each(['puto_10', 'p3l0tud0', 'puuuto', 'admin', 'soporte_clb', 'moderador'])('el usuario "%s" → 400', async (username) => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ ...registroValido, username })
+        .expect(400);
+      expect(res.body.errors.username).toEqual(['Ese nombre de usuario no está permitido. Elegí otro.']);
+      expect(authService.register).not.toHaveBeenCalled();
+    });
+
+    it('nombre, apellido y país ofensivos → 400, cada uno con su mensaje', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ ...registroValido, name: 'Pelotudo', lastName: 'h1j0 d3 put4', country: 'Sudaca' })
+        .expect(400);
+      expect(res.body.errors).toEqual({
+        name: ['Ese nombre no está permitido. Elegí otro.'],
+        lastName: ['Ese apellido no está permitido. Elegí otro.'],
+        country: ['Ese texto no está permitido.'],
+      });
+    });
+
+    it('nombres reales que se parecen pasan ("Concha", "Modric10", "Disputa")', async () => {
+      await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ ...registroValido, username: 'Modric10', name: 'Concha', lastName: 'Disputa' })
+        .expect(201);
+    });
+
+    it('un usuario muy largo da el error de largo, no el del filtro', async () => {
+      const res = await request(app.getHttpServer())
+        .post('/auth/register')
+        .send({ ...registroValido, username: 'puto'.repeat(10) })
+        .expect(400);
+      expect(res.body.errors.username[0]).toMatch(/entre 3 y 30/);
     });
   });
 });

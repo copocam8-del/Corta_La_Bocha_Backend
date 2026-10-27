@@ -27,6 +27,12 @@ function setup() {
       { game: 'memotest', tema: 'clubes_apodos', cantidad: 2n },
     ],
     'admin:letras': [{ letra: 'M', cantidad: 9n }, { letra: 'B', cantidad: 4n }],
+    'admin:nombres': [
+      { username: 'messi10', created_at: new Date('2026-10-13T12:00:00Z') },
+      { username: 'p3l0tud0_9', created_at: new Date('2026-10-12T12:00:00Z') },
+      { username: 'admin_clb', created_at: new Date('2026-10-11T12:00:00Z') },
+      { username: 'Modric10', created_at: new Date('2026-10-10T12:00:00Z') },
+    ],
   };
   const consultas: Prisma.Sql[] = [];
   const prisma = {
@@ -98,10 +104,23 @@ describe('AdminService (panel, sólo lectura)', () => {
     expect(r.sinDatos.join(' ')).toMatch(/multijugador/);
   });
 
+  it('nombres a revisar: sólo los que no pasarían el filtro, con fecha de alta y motivo (no cambia nada)', async () => {
+    const { service, consultas } = setup();
+    expect(await service.nombresARevisar()).toEqual({
+      revisados: 4,
+      nombres: [
+        { username: 'p3l0tud0_9', creado: new Date('2026-10-12T12:00:00Z'), motivo: 'ofensivo' },
+        { username: 'admin_clb', creado: new Date('2026-10-11T12:00:00Z'), motivo: 'reservado' },
+      ],
+    });
+    expect(consultas).toHaveLength(1);
+    expect(consultas[0].sql).toMatch(/^\/\* admin:nombres \*\/\s+SELECT username, created_at FROM users/);
+  });
+
   it('nada sensible en ninguna respuesta: contraseñas, hashes, tokens, fechas de nacimiento, id de Google ni claves', async () => {
     const { service } = setup();
     const todo = JSON.stringify(await Promise.all([
-      service.usuarios('todo', AHORA), service.partidas('todo', AHORA), service.ia('todo', AHORA), service.contenido('todo', AHORA),
+      service.usuarios('todo', AHORA), service.partidas('todo', AHORA), service.ia('todo', AHORA), service.contenido('todo', AHORA), service.nombresARevisar(),
     ]));
     for (const prohibido of ['password', 'hash', 'token', 'birth', 'google_id', '1234567890', 'clave-super-secreta', 'API_KEY']) {
       expect([prohibido, todo.includes(prohibido)]).toEqual([prohibido, false]);

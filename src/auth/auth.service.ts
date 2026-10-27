@@ -1,8 +1,10 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import { Injectable, UnauthorizedException, ConflictException, BadRequestException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { usuarioPermitido } from '../moderacion/filtro';
+import { MENSAJE_ACEPTAR_TERMINOS, TERMS_VERSION } from '../legal/terminos';
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
@@ -24,6 +26,8 @@ export class AuthService {
       .slice(0, 20);
     // Un nombre corto como "Al" daría un usuario de menos de 3 caracteres
     if (slug.length < 3) slug = `jugador${slug}`;
+    // Si el nombre es ofensivo o reservado ("admin", "clb"…), "jugador" + números
+    if (!usuarioPermitido(slug)) slug = `jugador${Math.floor(1000 + Math.random() * 9000)}`;
 
     let candidate = slug;
     let suffix = 0;
@@ -59,7 +63,10 @@ export class AuthService {
     country?: string
     email: string
     password: string
+    aceptaTerminos: boolean
   }) {
+    // El DTO ya lo exige; esto es por si alguien llama al servicio sin pasar por el controlador
+    if (data.aceptaTerminos !== true) throw new BadRequestException(MENSAJE_ACEPTAR_TERMINOS);
     const email = normalizeEmail(data.email);
 
     const existingEmail = await this.findByEmail(email);
@@ -84,6 +91,9 @@ export class AuthService {
           country: data.country,
           email,
           password_hash: hashed,
+          // Cuándo aceptó los Términos: la hora la pone el servidor (nunca la del navegador)
+          terms_accepted_at: new Date(),
+          terms_version: TERMS_VERSION,
           profile: { create: {} },
         },
       });

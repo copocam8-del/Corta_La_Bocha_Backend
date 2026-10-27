@@ -1,5 +1,6 @@
 // Reglas que se chequean EN CÓDIGO antes de llamar a la IA (gratis, rápido y sin margen de error):
-// que haya respuesta, que tenga un largo mínimo y que empiece con la letra de la ronda.
+// que haya respuesta, que no sea ofensiva, que tenga un largo mínimo y que empiece con la letra de la ronda.
+import { contieneOfensivo } from '../moderacion/filtro';
 
 export const MIN_ANSWER_LETTERS = 2;
 
@@ -36,6 +37,8 @@ export function stripIgnoredPrefixes(normalized: string, category?: string): str
   return stripWords(normalized, [...ARTICLES, ...((category && IGNORED_BY_CATEGORY[category]) || [])]);
 }
 
+export const RESPUESTA_OFENSIVA = 'Esa respuesta no está permitida.';
+
 export type PrecheckResult =
   | { ok: true; normalized: string }
   | { ok: false; status: 'empty' | 'invalid'; reason: string };
@@ -43,6 +46,8 @@ export type PrecheckResult =
 export function precheckAnswer(answer: string | null | undefined, letter: string, category?: string): PrecheckResult {
   const normalized = normalizeText(answer);
   if (!normalized) return { ok: false, status: 'empty', reason: 'No respondiste.' };
+  // Una respuesta ofensiva no se manda a la IA: no vale (y los demás jugadores la ven como "***")
+  if (contieneOfensivo(answer)) return { ok: false, status: 'invalid', reason: RESPUESTA_OFENSIVA };
 
   const core = stripIgnoredPrefixes(normalized, category);
   const letters = core.replace(/[^a-zñ]/g, '');
