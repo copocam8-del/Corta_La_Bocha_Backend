@@ -136,5 +136,39 @@ describe('UsersController', () => {
       expect(dto).not.toHaveProperty('total_points');
       expect(dto).not.toHaveProperty('avatar_url');
     });
+
+    it('filtro de malas palabras: usuario, nombre, apellido y textos públicos', async () => {
+      const { errors } = await validar({
+        username: 'admin_1',
+        first_name: 'Boludo',
+        last_name: 'Puuuto',
+        bio: 'sos un p.e.l.o.t.u.d.o',
+        favorite_team: 'Negro villero FC',
+        favorite_country: 'Sudacas',
+        favorite_player: 'Messi la concha de tu madre',
+      });
+      expect(errors).toEqual({
+        username: ['Ese nombre de usuario no está permitido. Elegí otro.'],
+        first_name: ['Ese nombre no está permitido. Elegí otro.'],
+        last_name: ['Ese apellido no está permitido. Elegí otro.'],
+        bio: ['Ese texto no está permitido.'],
+        favorite_team: ['Ese texto no está permitido.'],
+        favorite_country: ['Ese texto no está permitido.'],
+        favorite_player: ['Ese texto no está permitido.'],
+      });
+    });
+
+    it('textos normales pasan (aunque se parezcan a una mala palabra)', async () => {
+      const { errors } = await validar({
+        username: 'Modric10',
+        first_name: 'Concha',
+        last_name: 'Acayaguá',
+        bio: 'Me encanta la computadora y el pollo al horno',
+        favorite_team: 'Scunthorpe United',
+        favorite_country: 'Nigeria',
+        favorite_player: 'Dick Advocaat',
+      });
+      expect(errors).toBeUndefined();
+    });
   });
 });

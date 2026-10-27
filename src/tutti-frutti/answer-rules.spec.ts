@@ -51,3 +51,13 @@ describe('reglas de respuesta (antes de la IA)', () => {
     expect(compareKey('La Bombonera')).toBe(compareKey('bombonera'));
   });
 });
+
+describe('respuestas ofensivas', () => {
+  it.each(['Puto', 'P.u.t.o', 'puuuto', 'Pelotudo', 'Mierda'])('"%s" no vale y no hace falta la IA', (r) => {
+    expect(precheckAnswer(r, r[0])).toEqual({ ok: false, status: 'invalid', reason: 'Esa respuesta no está permitida.' });
+  });
+
+  it.each([['Pollo Vignolo', 'P'], ['Concha Acayaguá', 'C'], ['Disputa', 'D']])('"%s" sigue pasando', (r, letra) => {
+    expect(precheckAnswer(r, letra).ok).toBe(true);
+  });
+});

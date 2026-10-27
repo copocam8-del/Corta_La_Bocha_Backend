@@ -7,6 +7,7 @@ import { TuttiFruttiValidatorService } from '../tutti-frutti/tutti-frutti.servic
 import { PREGUNTAS } from '../trivia/trivia-bank';
 import { TEMATICAS_SOPA, type TematicaSopa } from '../sopa/sopa-rules';
 import { TEMAS_MEMOTEST, type TemaMemotest } from '../memotest/memotest-rules';
+import { contieneOfensivo, esNombreReservado } from '../moderacion/filtro';
 import {
   COSTO_IA_POR_PARTIDA, desdeDe, inicioDelDiaAR, MIN_VECES, n, palabrasDificiles, porcentaje, porDiaYJuego, rankingPreguntas,
   rellenarDias, resumenPartidas, type PeriodoAdmin,
@@ -206,5 +207,17 @@ export class AdminService {
         'Ahorcado multijugador: la palabra de cada ronda no se guarda (sólo cuenta el ahorcado solo).',
       ],
     };
+  }
+
+  // ── 5. Nombres a revisar ────────────────────────────────────────────────────────────────────
+  // Usuarios que YA existen y cuyo nombre no pasaría el filtro de hoy (ofensivo o reservado). Sólo se
+  // muestran: nada se cambia solo. El filtro está en código, así que se leen todos los nombres (una consulta).
+  async nombresARevisar() {
+    const usuarios = await this.q<{ username: string; created_at: Date }>(Prisma.sql`/* admin:nombres */
+      SELECT username, created_at FROM users ORDER BY created_at DESC`);
+    const nombres = usuarios
+      .map((u) => ({ username: u.username, creado: u.created_at, motivo: contieneOfensivo(u.username) ? ('ofensivo' as const) : esNombreReservado(u.username) ? ('reservado' as const) : null }))
+      .filter((u) => u.motivo !== null);
+    return { revisados: usuarios.length, nombres };
   }
 }

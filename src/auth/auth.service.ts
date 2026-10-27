@@ -3,6 +3,7 @@ import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import * as bcrypt from 'bcrypt';
+import { usuarioPermitido } from '../moderacion/filtro';
 
 const normalizeEmail = (email: string) => email.trim().toLowerCase();
 
@@ -24,6 +25,8 @@ export class AuthService {
       .slice(0, 20);
     // Un nombre corto como "Al" daría un usuario de menos de 3 caracteres
     if (slug.length < 3) slug = `jugador${slug}`;
+    // Si el nombre es ofensivo o reservado ("admin", "clb"…), "jugador" + números
+    if (!usuarioPermitido(slug)) slug = `jugador${Math.floor(1000 + Math.random() * 9000)}`;
 
     let candidate = slug;
     let suffix = 0;

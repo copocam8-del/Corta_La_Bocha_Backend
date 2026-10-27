@@ -39,4 +39,10 @@ export class AdminController {
   contenido(@Query('periodo') p?: string) {
     return this.admin.contenido(periodo(p));
   }
+
+  // Usuarios existentes con un nombre que no pasaría el filtro de malas palabras (sin período: son todos)
+  @Get('nombres')
+  nombres() {
+    return this.admin.nombresARevisar();
+  }
 }

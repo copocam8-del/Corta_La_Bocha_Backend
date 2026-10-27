@@ -1,6 +1,7 @@
 import { scoreRound, type AnswerStatus, type CategoryEntry } from '../../tutti-frutti/scoring';
 import { LETRAS, TEMATICAS, letrasDe } from '../../solo-matches/solo-quick';
 import type { AnswerCheck, AnswerToCheck } from '../../tutti-frutti/tutti-frutti.service';
+import { contieneOfensivo, TEXTO_OCULTO } from '../../moderacion/filtro';
 import {
   COLLECT_MS, COUNTDOWN_MS, fail, RESULTS_MS,
   type GameMode, type ModeDefinition, type ModeDeps, type ModeHost, type PlayerRef, type Result, type Settings,
@@ -24,6 +25,7 @@ export interface CellResult {
   canonical: string | null;
   reason: string;
   points: number;
+  ofensiva: boolean; // no vale y los demás la ven como "***" (el que la escribió ve la suya)
 }
 
 export interface RoundResult {
@@ -213,6 +215,7 @@ class TuttiFruttiMode implements GameMode {
             canonical: ch.canonical,
             reason: ch.reason,
             points: scores[p.userId]?.byCategory[c] ?? 0,
+            ofensiva: contieneOfensivo(answerOf(p, c)),
           };
         }),
       })),
@@ -252,8 +255,21 @@ class TuttiFruttiMode implements GameMode {
     });
   }
 
+  // Resultados como los ve cada jugador: las respuestas ofensivas de los demás, tapadas
+  private resultFor(r: RoundResult, userId: string): RoundResult {
+    if (!r.categories.some((c) => c.entries.some((e) => e.ofensiva && e.userId !== userId))) return r;
+    return {
+      ...r,
+      categories: r.categories.map((c) => ({
+        ...c,
+        entries: c.entries.map((e) => (e.ofensiva && e.userId !== userId ? { ...e, answer: TEXTO_OCULTO, canonical: null } : e)),
+      })),
+    };
+  }
+
   view(userId: string) {
     const phase = this.host.getPhase();
+    const history = this.history.map((r) => this.resultFor(r, userId));
     const inRound = ['countdown', 'playing', 'collecting', 'validating'].includes(phase);
     return {
       round: inRound
@@ -267,8 +283,8 @@ class TuttiFruttiMode implements GameMode {
             myAnswers: this.answers.get(userId) ?? {},
           }
         : null,
-      lastResult: this.history[this.history.length - 1] ?? null,
-      history: this.history,
+      lastResult: history[history.length - 1] ?? null,
+      history,
     };
   }
 }
