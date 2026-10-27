@@ -16,6 +16,7 @@ const registroValido = {
   birthDate: '1987-06-24',
   email: 'leo@mail.com',
   password: 'gambeta-de-potrero',
+  aceptaTerminos: true,
 };
 
 describe('/auth por HTTP', () => {
@@ -90,6 +91,16 @@ describe('/auth por HTTP', () => {
         .expect(400);
       expect(res.body.errors.password[0]).toMatch(/entre 8 y 72/);
     });
+  });
+
+  it('sin aceptar los Términos → 400 con el mensaje y no se crea la cuenta', async () => {
+    const { aceptaTerminos, ...sinAceptar } = registroValido;
+    expect(aceptaTerminos).toBe(true);
+    for (const body of [sinAceptar, { ...registroValido, aceptaTerminos: false }]) {
+      const res = await request(app.getHttpServer()).post('/auth/register').send(body).expect(400);
+      expect(res.body.errors.aceptaTerminos).toEqual(['Tenés que aceptar los Términos y la Política de privacidad.']);
+    }
+    expect(authService.register).not.toHaveBeenCalled();
   });
 
   it.each([[[]], [['a', 1]], [123], ['texto']])('un body que no es un objeto (%j) → 400, nunca llega al servicio', async (body) => {

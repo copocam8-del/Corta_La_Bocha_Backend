@@ -10,13 +10,17 @@ import {
   UseGuards,
   Query,
   BadRequestException,
+  Post,
+  HttpCode,
 } from '@nestjs/common'
+import { Throttle, ThrottlerGuard } from '@nestjs/throttler'
 
 import { AuthGuard } from '@nestjs/passport'
 import { UsersService } from './users.service'
 import { StatsService } from '../stats/stats.service'
 import { AchievementsService } from '../achievements/achievements.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
+import { AceptarTerminosDto } from './dto/aceptar-terminos.dto'
 import { authValidationPipe } from '../auth/auth-validation.pipe'
 import { PERIODS, type Period } from '../stats/periods'
 import { isGameId, type GameId } from '../games/games'
@@ -73,6 +77,16 @@ export class UsersController {
   @Put('me')
   updateMe(@Request() req, @Body(authValidationPipe) body: UpdateProfileDto) {
     return this.usersService.update(req.user.userId, body)
+  }
+
+  // Aceptar los Términos y la Política de privacidad (la versión vigente). Sólo el usuario del token: no hay forma de
+  // aceptar por otro. Máximo 10 por minuto por IP, como el login.
+  @Throttle({ default: { ttl: 60_000, limit: 10 } })
+  @UseGuards(ThrottlerGuard)
+  @HttpCode(200)
+  @Post('me/aceptar-terminos')
+  aceptarTerminos(@Request() req, @Body(authValidationPipe) body: AceptarTerminosDto) {
+    return this.usersService.aceptarTerminos(req.user.userId, body.version)
   }
 
   // Ranking: los 50 mejores (sólo datos públicos). Va antes de ':id' para que no lo tape.

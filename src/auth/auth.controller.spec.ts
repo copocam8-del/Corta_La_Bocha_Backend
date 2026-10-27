@@ -37,6 +37,7 @@ const registroValido = {
   country: 'Argentina',
   email: 'leo@mail.com',
   password: 'gambeta-de-potrero',
+  aceptaTerminos: true,
 };
 
 describe('AuthController', () => {
@@ -142,12 +143,23 @@ describe('Validación de /auth/register', () => {
       birthDate: ['Ingresá tu fecha de nacimiento'],
       email: ['Ingresá tu email'],
       password: ['Ingresá una contraseña'],
+      aceptaTerminos: ['Tenés que aceptar los Términos y la Política de privacidad.'],
     });
+  });
+
+  it.each([
+    ['sin el campo', undefined],
+    ['false', false],
+    ['"true" como texto', 'true'],
+    ['1', 1],
+  ])('exige aceptar los Términos: %s → error', async (_caso, aceptaTerminos) => {
+    const { errors } = await validate(RegisterDto, { ...registroValido, aceptaTerminos });
+    expect(errors).toEqual({ aceptaTerminos: ['Tenés que aceptar los Términos y la Política de privacidad.'] });
   });
 
   it('devuelve todos los errores agrupados por campo', async () => {
     const { errors } = await validate(RegisterDto, { email: 'no-es-email', password: 123 });
-    expect(Object.keys(errors!).sort()).toEqual(['birthDate', 'email', 'password']);
+    expect(Object.keys(errors!).sort()).toEqual(['aceptaTerminos', 'birthDate', 'email', 'password']);
   });
 });
 

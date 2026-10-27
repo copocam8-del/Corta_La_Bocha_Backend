@@ -1,4 +1,4 @@
-import { IsEmail, IsNotEmpty, IsString, IsOptional, IsDateString, Length, Matches, MaxLength } from 'class-validator';
+import { Equals, IsEmail, IsNotEmpty, IsString, IsOptional, IsDateString, Length, Matches, MaxLength } from 'class-validator';
 import {
   MIN_AGE,
   MinAge,
@@ -15,6 +15,7 @@ import {
 } from './auth-rules';
 import { MENSAJE_APELLIDO, MENSAJE_NOMBRE, MENSAJE_TEXTO } from '../../moderacion/filtro';
 import { TextoPermitido, UsuarioPermitido } from '../../moderacion/validadores';
+import { MENSAJE_ACEPTAR_TERMINOS } from '../../legal/terminos';
 
 // Ojo con el orden: class-validator evalúa los decoradores de abajo hacia arriba y,
 // como el pipe usa stopAtFirstError, sólo se muestra el primer error. Por eso la regla
@@ -78,4 +79,9 @@ export class RegisterDto {
   @IsString({ message: 'El captcha no es válido' })
   @IsOptional()
   captchaToken?: string;
+
+  // La casilla "Acepto los Términos y la Política de privacidad" (Ley 25.326: el consentimiento tiene que ser expreso).
+  // Tiene que llegar exactamente true: sin el campo, false o "true" (texto) → 400.
+  @Equals(true, { message: MENSAJE_ACEPTAR_TERMINOS })
+  aceptaTerminos: boolean;
 }

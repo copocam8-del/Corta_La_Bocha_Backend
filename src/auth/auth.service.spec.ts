@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { ConflictException, UnauthorizedException } from '@nestjs/common';
+import { BadRequestException, ConflictException, UnauthorizedException } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import { Prisma } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { AuthService } from './auth.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { TERMS_VERSION } from '../legal/terminos';
 
 // bcrypt real, pero con compare "espiable" para comprobar que siempre se llama
 jest.mock('bcrypt', () => {
@@ -28,6 +29,7 @@ describe('AuthService', () => {
     birthDate: '2000-06-24',
     email: '  Leo@Mail.COM ',
     password: 'contraseña123',
+    aceptaTerminos: true,
   };
 
   beforeEach(async () => {
@@ -55,6 +57,26 @@ describe('AuthService', () => {
         where: { email: { equals: 'leo@mail.com', mode: 'insensitive' } },
       });
       expect(prisma.users.create.mock.calls[0][0].data.email).toBe('leo@mail.com');
+    });
+
+    it('guarda cuándo aceptó los Términos (hora del servidor) y la versión vigente', async () => {
+      prisma.users.findFirst.mockResolvedValue(null);
+      prisma.users.create.mockResolvedValue({ id: 'u1', username: 'messi_10' });
+      const antes = Date.now();
+
+      await service.register(registro);
+
+      const data = prisma.users.create.mock.calls[0][0].data;
+      expect(data.terms_version).toBe(TERMS_VERSION);
+      expect(data.terms_accepted_at).toBeInstanceOf(Date);
+      expect(data.terms_accepted_at.getTime()).toBeGreaterThanOrEqual(antes);
+    });
+
+    it('sin aceptar los Términos no crea la cuenta (400)', async () => {
+      await expect(service.register({ ...registro, aceptaTerminos: false })).rejects.toThrow(
+        new BadRequestException('Tenés que aceptar los Términos y la Política de privacidad.'),
+      );
+      expect(prisma.users.create).not.toHaveBeenCalled();
     });
 
     it('devuelve 409 si el email ya existe', async () => {
