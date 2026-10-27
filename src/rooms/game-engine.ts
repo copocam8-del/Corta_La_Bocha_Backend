@@ -237,6 +237,32 @@ export class GameEngine {
     });
   }
 
+  // Borró su cuenta: sale de todas sus salas como cuando alguien se va (el anfitrión pasa al siguiente o la sala se
+  // cierre) y además desaparece de la lista, así no queda en los resultados ni se le guardan estadísticas. Los demás
+  // siguen jugando y no pierden nada. Se llama ANTES de borrarlo de la base.
+  async removeUser(userId: string): Promise<void> {
+    const codes = [...this.rooms.values()].filter((r) => r.players.has(userId)).map((r) => r.code);
+    for (const code of codes) {
+      await this.withLock(code, async () => {
+        const room = this.rooms.get(code);
+        const p = room?.players.get(userId);
+        if (!room || !p) return;
+        if (!IN_GAME.includes(room.phase)) {
+          await this.removePlayer(room, p);
+          return;
+        }
+        p.left = true;
+        p.connected = false;
+        room.notice = `${p.username} se fue de la partida.`;
+        await room.mode?.onPlayerGone?.(userId, 'left');
+        await this.removePlayer(room, p, false);
+        if (!this.rooms.has(code)) return; // era el último: la sala se cerró
+        this.checkPlayers(room);
+        this.broadcast(room);
+      });
+    }
+  }
+
   private scheduleLobbyRemoval(room: Room, p: Player) {
     if (p.timer) clearTimeout(p.timer);
     p.timer = setTimeout(() => void this.withLock(room.code, async () => {

@@ -12,6 +12,7 @@ import {
   BadRequestException,
   Post,
   HttpCode,
+  Delete,
 } from '@nestjs/common'
 import { Throttle, ThrottlerGuard } from '@nestjs/throttler'
 
@@ -21,6 +22,7 @@ import { StatsService } from '../stats/stats.service'
 import { AchievementsService } from '../achievements/achievements.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { AceptarTerminosDto } from './dto/aceptar-terminos.dto'
+import { BorrarCuentaDto } from './dto/borrar-cuenta.dto'
 import { authValidationPipe } from '../auth/auth-validation.pipe'
 import { PERIODS, type Period } from '../stats/periods'
 import { isGameId, type GameId } from '../games/games'
@@ -87,6 +89,16 @@ export class UsersController {
   @Post('me/aceptar-terminos')
   aceptarTerminos(@Request() req, @Body(authValidationPipe) body: AceptarTerminosDto) {
     return this.usersService.aceptarTerminos(req.user.userId, body.version)
+  }
+
+  // Borrar la cuenta, para siempre. Sólo la del token (no hay DELETE /users/:id). Pide la contraseña o, si entró sólo
+  // con Google, su nombre de usuario. Máximo 5 por minuto por IP (que no se pueda probar contraseñas).
+  @Throttle({ default: { ttl: 60_000, limit: 5 } })
+  @UseGuards(ThrottlerGuard)
+  @HttpCode(200)
+  @Delete('me')
+  borrarCuenta(@Request() req, @Body(authValidationPipe) body: BorrarCuentaDto) {
+    return this.usersService.borrarCuenta(req.user.userId, body)
   }
 
   // Ranking: los 50 mejores (sólo datos públicos). Va antes de ':id' para que no lo tape.

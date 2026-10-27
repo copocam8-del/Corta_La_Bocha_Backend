@@ -1,20 +1,29 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException, UnauthorizedException } from '@nestjs/common';
+import * as bcrypt from 'bcrypt';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
 import { TERMS_VERSION } from '../legal/terminos';
+import { MultiplayerService } from '../rooms/multiplayer.service';
 
 describe('UsersService', () => {
   let service: UsersService;
-  const prisma = { users: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn() } };
+  // Las tablas que borra DELETE /users/me (todas con deleteMany, users con delete)
+  const TABLAS = ['daily_challenges', 'match_results', 'matches', 'votes', 'answers', 'room_players', 'user_achievements', 'game_stats', 'contenido_visto', 'password_resets', 'profiles'] as const;
+  const prisma = {
+    users: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), count: jest.fn(async () => 1), delete: jest.fn((a: unknown) => ({ tabla: 'users', ...(a as object) })) },
+    ...Object.fromEntries(TABLAS.map((t) => [t, { deleteMany: jest.fn((a: unknown) => ({ tabla: t, ...(a as object) })) }])),
+    $transaction: jest.fn(async (ops: unknown[]) => ops),
+  } as Record<string, any>;
+  const multiplayer = { expulsarUsuario: jest.fn(async () => undefined) };
   const env: Record<string, string | undefined> = {};
   const config = { get: (k: string) => env[k] };
 
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
-      providers: [UsersService, { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config }],
+      providers: [UsersService, { provide: PrismaService, useValue: prisma }, { provide: ConfigService, useValue: config }, { provide: MultiplayerService, useValue: multiplayer }],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
@@ -109,6 +118,74 @@ describe('UsersService', () => {
     it('una versión que no es la vigente → 400 y no guarda nada', async () => {
       await expect(service.aceptarTerminos('u1', '2020-01-01')).rejects.toThrow(BadRequestException);
       expect(prisma.users.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('Borrar la cuenta (DELETE /users/me)', () => {
+    const HASH = bcrypt.hashSync('gambeta-de-potrero', 4);
+    const conContrasena = { id: 'u1', username: 'Cami10', password_hash: HASH };
+    const deGoogle = { id: 'u1', username: 'Cami10', password_hash: null };
+    const borradas = () => (prisma.$transaction.mock.calls[0]?.[0] ?? []) as { tabla: string; where: object }[];
+
+    it('con la contraseña correcta: primero lo saca de las salas y después borra todo lo suyo en UNA transacción, users al final', async () => {
+      prisma.users.findUnique.mockResolvedValue(conContrasena);
+      expect(await service.borrarCuenta('u1', { password: 'gambeta-de-potrero' })).toEqual({ borrada: true });
+      expect(multiplayer.expulsarUsuario).toHaveBeenCalledWith('u1');
+      expect(multiplayer.expulsarUsuario.mock.invocationCallOrder[0]).toBeLessThan(prisma.$transaction.mock.invocationCallOrder[0]);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      const ops = borradas();
+      expect(ops.map((o) => o.tabla)).toEqual([...TABLAS, 'users']);
+      expect(ops.at(-1)).toEqual({ tabla: 'users', where: { id: 'u1' } });
+      // Sólo sus filas; de las partidas, sólo las solo (las multijugador son de todos)
+      expect(ops.find((o) => o.tabla === 'matches')!.where).toEqual({ user_id: 'u1', room_id: null });
+      expect(ops.find((o) => o.tabla === 'answers')!.where).toEqual({ room_player: { user_id: 'u1' } });
+      for (const o of ops.filter((x) => !['users', 'answers'].includes(x.tabla))) expect(o.where).toMatchObject({ user_id: 'u1' });
+    });
+
+    it('contraseña equivocada → 401 "La contraseña no es correcta." y no toca nada (ni las salas)', async () => {
+      prisma.users.findUnique.mockResolvedValue(conContrasena);
+      const error = await service.borrarCuenta('u1', { password: 'otra' }).catch((e) => e);
+      expect(error).toBeInstanceOf(UnauthorizedException);
+      expect(error.message).toBe('La contraseña no es correcta.');
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(multiplayer.expulsarUsuario).not.toHaveBeenCalled();
+    });
+
+    it('con contraseña, sin mandarla (o mandando el nombre de usuario) → 400 y no borra', async () => {
+      prisma.users.findUnique.mockResolvedValue(conContrasena);
+      await expect(service.borrarCuenta('u1', {})).rejects.toThrow(BadRequestException);
+      await expect(service.borrarCuenta('u1', { confirmacion: 'Cami10' })).rejects.toThrow(BadRequestException);
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('cuenta de Google (sin contraseña): confirma con su nombre de usuario, sin importar mayúsculas', async () => {
+      prisma.users.findUnique.mockResolvedValue(deGoogle);
+      expect(await service.borrarCuenta('u1', { confirmacion: '  cAMI10 ' })).toEqual({ borrada: true });
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('cuenta de Google con otro nombre, vacío o una contraseña cualquiera → 400 y no borra', async () => {
+      prisma.users.findUnique.mockResolvedValue(deGoogle);
+      for (const body of [{ confirmacion: 'Cami1' }, { confirmacion: '' }, {}, { password: 'lo-que-sea' }]) {
+        await expect(service.borrarCuenta('u1', body)).rejects.toThrow(BadRequestException);
+      }
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(multiplayer.expulsarUsuario).not.toHaveBeenCalled();
+    });
+
+    it('/users/me dice si la cuenta tiene contraseña (sin pedir nunca el hash)', async () => {
+      prisma.users.findUnique.mockResolvedValue({ id: 'u1', email: 'a@mail.com' });
+      for (const [filas, tiene] of [[1, true], [0, false]] as const) {
+        prisma.users.count.mockResolvedValueOnce(filas);
+        expect(await service.findOwn('u1')).toMatchObject({ tieneContrasena: tiene });
+      }
+      expect(prisma.users.count).toHaveBeenCalledWith({ where: { id: 'u1', password_hash: { not: null } } });
+      expect(prisma.users.findUnique.mock.calls[0][0].select).not.toHaveProperty('password_hash');
+    });
+
+    it('si el usuario ya no existe → 401 (nunca 500)', async () => {
+      prisma.users.findUnique.mockResolvedValue(null);
+      await expect(service.borrarCuenta('u1', { password: 'x' })).rejects.toThrow(UnauthorizedException);
     });
   });
 });

@@ -182,8 +182,10 @@ class TuttiFruttiMode implements GameMode {
     );
   }
 
-  private async applyResults(roundId: string | null, participants: PlayerRef[], checks: Map<string, AnswerCheck>) {
+  private async applyResults(roundId: string | null, todos: PlayerRef[], checks: Map<string, AnswerCheck>) {
     if (this.host.getPhase() !== 'validating' || this.roundId !== roundId) return;
+    // Si alguien borró su cuenta mientras validaba la IA, ya no está en la sala: sus respuestas no se guardan
+    const participants = todos.filter((p) => this.host.player(p.userId));
     const categories = this.categories;
     const answerOf = (p: PlayerRef, c: string) => (this.answers.get(p.userId)?.[c] ?? '').trim() || null;
     const checkOf = (p: PlayerRef, c: string): AnswerCheck =>
