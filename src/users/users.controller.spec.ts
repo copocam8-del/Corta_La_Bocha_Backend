@@ -7,6 +7,8 @@ import { StatsService } from '../stats/stats.service';
 import { AchievementsService } from '../achievements/achievements.service';
 import { authValidationPipe } from '../auth/auth-validation.pipe';
 import { UpdateProfileDto } from './dto/update-profile.dto';
+import { AceptarTerminosDto } from './dto/aceptar-terminos.dto';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 // Lista "MÉTODO ruta" de todos los endpoints del controlador, en el orden en que se declaran
 function rutas(): string[] {
@@ -31,7 +33,7 @@ async function validar(body: object) {
 }
 
 describe('UsersController', () => {
-  const usersService = { findOne: jest.fn(), findAll: jest.fn(), update: jest.fn() };
+  const usersService = { findOne: jest.fn(), findAll: jest.fn(), update: jest.fn(), aceptarTerminos: jest.fn() };
   const statsService = { getUserRanking: jest.fn(), getTopPlayers: jest.fn(), getLeaderboard: jest.fn() };
   const achievementsService = { listForUser: jest.fn() };
   let controller: UsersController;
@@ -39,6 +41,7 @@ describe('UsersController', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     const module: TestingModule = await Test.createTestingModule({
+      imports: [ThrottlerModule.forRoot([{ ttl: 60_000, limit: 10 }])],
       controllers: [UsersController],
       providers: [
         { provide: UsersService, useValue: usersService },
@@ -76,6 +79,24 @@ describe('UsersController', () => {
     await controller.getRanking('elo');
     expect(statsService.getLeaderboard).toHaveBeenCalledWith('elo', 50, undefined);
     expect(() => controller.getRanking('anual')).toThrow('Período inválido');
+  });
+
+  it('POST /users/me/aceptar-terminos acepta sólo para el usuario del token y tiene límite de pedidos', async () => {
+    await controller.aceptarTerminos({ user: { userId: 'u1' } }, { version: '2026-10-27' });
+    expect(usersService.aceptarTerminos).toHaveBeenCalledWith('u1', '2026-10-27');
+    expect(rutas()).toContain('POST me/aceptar-terminos');
+    const guards = (Reflect.getMetadata('__guards__', UsersController.prototype.aceptarTerminos) ?? []) as unknown[];
+    expect(guards).toContain(ThrottlerGuard);
+  });
+
+  it('aceptar-terminos exige la versión como texto corto', async () => {
+    const validarVersion = (body: object) =>
+      authValidationPipe.transform(body, { type: 'body', metatype: AceptarTerminosDto }).then(() => null, (e: BadRequestException) =>
+        (e.getResponse() as { errors: Record<string, string[]> }).errors);
+    expect(await validarVersion({})).toEqual({ version: ['Falta la versión de los Términos'] });
+    expect(await validarVersion({ version: 20261027 })).toEqual({ version: ['La versión de los Términos no es válida'] });
+    expect(await validarVersion({ version: 'x'.repeat(21) })).toEqual({ version: ['La versión de los Términos no es válida'] });
+    expect(await validarVersion({ version: '2026-10-27' })).toBeNull();
   });
 
   it('GET /users/me/achievements usa el usuario del token', async () => {

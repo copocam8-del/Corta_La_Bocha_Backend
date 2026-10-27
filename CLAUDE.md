@@ -80,7 +80,8 @@ src/
     dto/common-passwords.ts / dto/disposable-domains.ts   listas propias (sin dependencias)
     email-attempt-limiter.ts  límite de intentos por email (login y forgot-password)
     turnstile.service.ts      captcha de Cloudflare en el registro (opcional)
-  users/               perfil (/users/me)
+  users/               perfil (/users/me) y aceptar los Términos (/users/me/aceptar-terminos)
+  legal/terminos.ts    TERMS_VERSION: versión vigente de los Términos y la Política de privacidad
   admin/               panel de administración del equipo (sólo lectura, ADMIN_EMAILS)
   moderacion/          filtro de malas palabras (palabras.ts + filtro.ts, copia exacta en el frontend) y validadores.ts
   rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
@@ -107,6 +108,9 @@ prisma/
   `app.setup.ts` tiene `trust proxy` para que Render pase la IP real.
 - Además, **por email** (`EmailAttemptLimiter`, en memoria): 5 logins fallidos cada 15 min (uno correcto limpia
   el contador) y 5 pedidos de `forgot-password` cada 15 min → 429. Cuenta igual exista o no la cuenta.
+- Registro: exige `aceptaTerminos: true` (sin el campo, `false` o `"true"` como texto → 400
+  `errors.aceptaTerminos: ['Tenés que aceptar los Términos y la Política de privacidad.']`) y guarda cuándo (`new Date()`
+  del servidor) y qué versión aceptó. Ver "Términos y Política de privacidad".
 - Registro: rechaza contraseñas de la lista de las más comunes (sin mayúsculas, también en `reset-password`; el
   login no, por las cuentas viejas) y mails de dominios descartables (también subdominios). Con
   `TURNSTILE_SECRET_KEY` exige `captchaToken` (ver "Seguridad").
@@ -120,6 +124,22 @@ prisma/
 - No hay `ValidationPipe` global: sólo `/auth` valida los DTO (decisión a propósito, para no romper
   los otros módulos). En los DTO de auth, los decoradores se evalúan de abajo hacia arriba y se muestra
   sólo el primer error, así que la regla más básica (vacío / tipo) va pegada a la propiedad.
+
+## Términos y Política de privacidad (quién aceptó)
+
+- `users.terms_accepted_at` (TIMESTAMP) y `users.terms_version` (VARCHAR 20), las dos opcionales (migración
+  `20261027120000_aceptar_terminos`; **no está aplicada en producción**: se aplica a mano, con backup antes). Los usuarios que
+  ya existían quedan con `terms_version = NULL`.
+- `TERMS_VERSION` en `src/legal/terminos.ts` (hoy `'2026-10-27'`, igual que `LEGAL_LAST_UPDATE` del frontend). **Si cambian
+  los Términos o la Política (y el cambio es importante), se sube**: todos quedan pendientes y la app les pide aceptar de nuevo.
+- `GET /users/me` devuelve `terminosPendientes: true` si `terms_version` no es la vigente (nunca aceptó: usuarios de antes y
+  los que entran con Google; o aceptó una vieja) y `terminosVersion` (la vigente). No devuelve las columnas crudas.
+- `POST /users/me/aceptar-terminos {version}` (200): sólo el usuario del token (no hay forma de aceptar por otro); si
+  `version` no es la vigente → 400 ("Esa no es la versión vigente…"; sin el campo o no texto → 400 por campo). Guarda la
+  fecha del servidor y la versión. Límite: 10 por minuto por IP (como el login).
+- Login con Google: no cambia; el usuario nuevo queda pendiente hasta aceptar en la app.
+- El backend **no** frena los juegos si faltan aceptar: lo hace el frontend (`ProtectedRoute` no muestra ninguna pantalla
+  privada hasta aceptar). Tests en `auth.*.spec.ts`, `users.*.spec.ts` y el bloque "Términos" del e2e de seguridad.
 
 ## Perfil, estadísticas y ranking
 
