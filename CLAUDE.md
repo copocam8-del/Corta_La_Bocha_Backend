@@ -82,6 +82,7 @@ src/
     turnstile.service.ts      captcha de Cloudflare en el registro (opcional)
   users/               perfil (/users/me)
   admin/               panel de administración del equipo (sólo lectura, ADMIN_EMAILS)
+  moderacion/          filtro de malas palabras (palabras.ts + filtro.ts, copia exacta en el frontend) y validadores.ts
   rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
     modes/             un "modo" por juego: tutti-frutti, ahorcado, trivia, sopa, memotest, impostor (index.ts = registro)
   impostor/            El Impostor: banco de palabras, reglas y POST /impostor/local ("En persona")
@@ -423,6 +424,43 @@ Dos modos: **Online** (salas por Socket.IO, lo de abajo) y **En persona** (un so
   Sin configurar no manda nada y lo avisa en el log; **fuera de producción el link se imprime en la consola**
   (nunca en producción). `FRONTEND_URL` arma el link (`/restablecer-contrasena?token=…`).
 
+## Filtro de malas palabras (`src/moderacion/`)
+
+Todo texto que escribe un usuario y ven otros pasa por el filtro. **Decide el backend**; el frontend sólo avisa antes.
+
+- `palabras.ts`: lista propia, sin dependencias (español rioplatense e inglés: insultos, discriminatorios —racistas,
+  homofóbicos, xenófobos, contra personas con discapacidad— y contenido sexual). Tres listas con reglas distintas:
+  `PALABRAS_PROHIBIDAS` (palabra **entera**, 215), `RAICES_PROHIBIDAS` (adentro de una palabra, 32) y
+  `FRASES_PROHIBIDAS` (en todo el texto junto, 22). Más `RESERVADOS` / `RESERVADOS_ADENTRO` / `RESERVADOS_AL_BORDE`
+  (nombres que se hacen pasar por el equipo: admin, moderador, mod, soporte, staff, oficial, cortalabocha, clb…).
+  Cómo agregar una palabra está explicado arriba de todo en el archivo.
+- `filtro.ts`: `contieneOfensivo(texto)` y `esNombreReservado(usuario)` (`usuarioPermitido` = las dos). Normaliza antes
+  de comparar: minúsculas, sin tildes, leetspeak (0→o, 1→i y 1→l, 3→e, 4→a, 5→s, 7→t, @→a, $→s; también lee los
+  números como separadores: "puto123"), letras estiradas ("puuuto"; 2 consonantes iguales NO cuentan: "penne" ≠ "pene")
+  y separadores ("p.u.t.o", "p u t o", "p_u_t_o"). Plural y prefijos pegados ("putos", "reputa", "lapija") se prueban
+  solos. Las raíces y frases respetan las letras dobles ("nigger" no bloquea "Nigeria").
+- **Falsos positivos**: palabras cortas siempre enteras ("Computadora", "Disputa", "Concha Acayaguá" pasan).
+  `moderacion.spec.ts` corre el filtro contra **todos los bancos** (máquina, Impostor, ahorcado, trivia, sopa, memotest,
+  temáticas): si agregás una palabra que bloquea una respuesta real, el test lo dice. Ya se sacaron por eso "moron"
+  (Deportivo Morón), "xxx" y "kkk" ("kkkk" es risa en portugués), y no se incluyen "gil", "negro", "mono", "concha",
+  "dick" (Dick Advocaat), "ano" ("año" sin tilde) ni "anal" ("anales").
+- **Copia exacta en el frontend** (`src/moderacion/palabras.ts` y `filtro.ts`): el test compara los dos archivos.
+  **Si cambiás algo, copialo igual en el otro repo.** Por eso no importan nada de Nest.
+- Dónde se aplica:
+  - Registro y `PUT /users/me` (decoradores `UsuarioPermitido` / `TextoPermitido` de `validadores.ts`, arriba de todo
+    en el DTO): usuario → 400 "Ese nombre de usuario no está permitido. Elegí otro."; nombre/apellido → "Ese nombre
+    (apellido) no está permitido. Elegí otro."; país (registro), bio y equipo/selección/jugador favorito → "Ese texto no
+    está permitido.".
+  - Usuario generado solo (registro sin usuario y login con Google, `generateUniqueUsername`): si no pasa, "jugador" + 4 números.
+  - Tutti Frutti (solo, multijugador y `validate-round`): en `precheckAnswer`, antes de la IA → `invalid` ("No vale",
+    motivo "Esa respuesta no está permitida."), **no se manda a la IA**. En el multijugador cada celda trae
+    `ofensiva` y `view` la tapa con "***" para los demás (el que la escribió ve la suya). En la base queda lo que escribió.
+  - El Impostor online: pista → `{ ok: false, error: 'Esa pista no está permitida.' }` (a todos, también al impostor:
+    ninguna palabra del banco es ofensiva, así que no le da información); adivinanza → "Esa respuesta no está
+    permitida." y **no gasta el intento**.
+  - No hay más textos libres que vean otros: salas, ranking y resultados muestran usuarios (ya filtrados) o datos de listas fijas.
+- Usuarios que ya existían: el panel de admin los lista en "Nombres a revisar" (`GET /admin/nombres`); nada se cambia solo.
+
 ## Panel de administración (`src/admin/`, sólo lectura)
 
 - **Acceso lo decide el backend**: `ADMIN_EMAILS` (mails separados por coma, en minúsculas). `AdminGuard` busca el email
@@ -430,7 +468,9 @@ Dos modos: **Online** (salas por Socket.IO, lo de abajo) y **En persona** (un so
   `AuthGuard('jwt')` (sin sesión 401) → `AdminGuard` (no admin o sin variable → **404 igual al de una ruta que no
   existe**, para no revelar el panel). `GET /users/me` devuelve `isAdmin` (sólo para mostrar el botón).
 - Endpoints (todos GET, `?periodo=hoy|7d|30d|todo`, por defecto `7d`; "hoy" y los días en hora argentina, 7 y 30 días
-  cuentan hoy): `/admin/usuarios`, `/admin/partidas`, `/admin/ia`, `/admin/contenido`.
+  cuentan hoy): `/admin/usuarios`, `/admin/partidas`, `/admin/ia`, `/admin/contenido`. Además `/admin/nombres` (sin
+  período): usuarios existentes cuyo nombre no pasaría el filtro de malas palabras (`{ revisados, nombres: [{ username,
+  creado, motivo: 'ofensivo'|'reservado' }] }`). Lee todos los nombres en una consulta y filtra en código.
 - **Nunca** devuelve contraseñas, hashes, tokens, fechas de nacimiento, id de Google ni claves de la IA. De los usuarios:
   usuario, fecha de alta y si entró con Google; el email sólo en los últimos 20 registros. Un test lo controla.
 - Todo se calcula en la base: una consulta SQL por dato (`AdminService`, cada una con un comentario `/* admin:… */`;

@@ -2,6 +2,7 @@ import {
   ADIVINANZA_MAX, contieneLaPalabra, elegirImpostor, elegirPalabras, esLaPalabra, limpiarTexto, masVotado, mezclar, nombreCategoria,
   PISTA_MAX, PUNTOS, TEMATICAS_IMPOSTOR, type PalabraElegida, type TematicaImpostor,
 } from '../../impostor/impostor-rules';
+import { contieneOfensivo, MENSAJE_ADIVINANZA, MENSAJE_PISTA } from '../../moderacion/filtro';
 import { RoundMode } from './round-mode';
 import { fail, type GameExtra, type ModeDefinition, type ModeDeps, type ModeHost, type Result, type Settings } from './types';
 
@@ -230,6 +231,8 @@ class ImpostorMode extends RoundMode {
       const texto = limpiarTexto(datos.pista);
       if (!texto) return fail('Escribí tu pista.');
       if (texto.length > PISTA_MAX) return fail(`La pista puede tener hasta ${PISTA_MAX} caracteres.`);
+      // A todos (también al impostor): ninguna palabra del banco es ofensiva, así que no le da pistas
+      if (contieneOfensivo(texto)) return fail(MENSAJE_PISTA);
       // La regla es para los que SABEN la palabra. Al impostor no se le revisa: si se lo
       // rechazáramos, sabría que adivinó. Y como a los demás no se les acepta, una pista con la
       // palabra sólo puede ser del impostor (se delata solo).
@@ -257,6 +260,8 @@ class ImpostorMode extends RoundMode {
       const intento = limpiarTexto(datos.respuesta);
       if (!intento) return fail('Escribí la palabra que querés arriesgar.');
       if (intento.length > ADIVINANZA_MAX) return fail(`Hasta ${ADIVINANZA_MAX} caracteres.`);
+      // No gasta el intento: puede volver a escribir
+      if (contieneOfensivo(intento)) return fail(MENSAJE_ADIVINANZA);
       this.adivinanza = intento;
       const acerto = esLaPalabra(intento, this.palabra);
       await this.cerrar({ ganador: acerto ? 'impostor' : 'grupo', motivo: acerto ? 'adivino' : 'descubierto', acusado: this.impostor, acerto });

@@ -113,6 +113,12 @@ describe('AuthService', () => {
       expect(prisma.users.create.mock.calls[0][0].data.username).toBe('lionel1');
     });
 
+    // Registro sin usuario (o login con Google): el nombre puede venir del mail o de la cuenta de Google
+    it.each(['Puto', 'admin', 'CLB', 'p.e.l.o.t.u.d.o'])('si el usuario generado desde "%s" no pasa el filtro, usa "jugador" + números', async (base) => {
+      prisma.users.findFirst.mockResolvedValue(null);
+      expect(await service.generateUniqueUsername(base)).toMatch(/^jugador\d{4}$/);
+    });
+
     it('no oculta otros errores de la base', async () => {
       prisma.users.findFirst.mockResolvedValue(null);
       prisma.users.findUnique.mockResolvedValue(null);

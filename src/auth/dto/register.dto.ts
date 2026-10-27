@@ -13,11 +13,14 @@ import {
   USERNAME_MIN,
   USERNAME_REGEX,
 } from './auth-rules';
+import { MENSAJE_APELLIDO, MENSAJE_NOMBRE, MENSAJE_TEXTO } from '../../moderacion/filtro';
+import { TextoPermitido, UsuarioPermitido } from '../../moderacion/validadores';
 
 // Ojo con el orden: class-validator evalúa los decoradores de abajo hacia arriba y,
 // como el pipe usa stopAtFirstError, sólo se muestra el primer error. Por eso la regla
 // más básica (campo vacío / tipo) va abajo de todo, pegada a la propiedad.
 export class RegisterDto {
+  @UsuarioPermitido()
   @Matches(USERNAME_REGEX, { message: 'El nombre de usuario sólo puede tener letras, números y _' })
   @Length(USERNAME_MIN, USERNAME_MAX, {
     message: `El nombre de usuario debe tener entre ${USERNAME_MIN} y ${USERNAME_MAX} caracteres`,
@@ -27,12 +30,14 @@ export class RegisterDto {
   @TrimOrUndefined()
   username?: string;
 
+  @TextoPermitido(MENSAJE_NOMBRE)
   @MaxLength(NAME_MAX, { message: `El nombre puede tener hasta ${NAME_MAX} caracteres` })
   @IsString({ message: 'El nombre debe ser texto' })
   @IsOptional()
   @TrimOrUndefined()
   name?: string;
 
+  @TextoPermitido(MENSAJE_APELLIDO)
   @MaxLength(NAME_MAX, { message: `El apellido puede tener hasta ${NAME_MAX} caracteres` })
   @IsString({ message: 'El apellido debe ser texto' })
   @IsOptional()
@@ -44,6 +49,8 @@ export class RegisterDto {
   @IsNotEmpty({ message: 'Ingresá tu fecha de nacimiento' })
   birthDate: string;
 
+  // El país es público (perfil de otros usuarios)
+  @TextoPermitido(MENSAJE_TEXTO)
   @MaxLength(56, { message: 'El país puede tener hasta 56 caracteres' })
   @IsString({ message: 'El país debe ser texto' })
   @IsOptional()
