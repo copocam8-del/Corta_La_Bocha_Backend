@@ -12,7 +12,7 @@ describe('UsersService', () => {
   // Las tablas que borra DELETE /users/me (todas con deleteMany, users con delete)
   const TABLAS = ['daily_challenges', 'match_results', 'matches', 'votes', 'answers', 'room_players', 'user_achievements', 'game_stats', 'contenido_visto', 'password_resets', 'profiles'] as const;
   const prisma = {
-    users: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), delete: jest.fn((a: unknown) => ({ tabla: 'users', ...(a as object) })) },
+    users: { findMany: jest.fn(), findUnique: jest.fn(), findFirst: jest.fn(), update: jest.fn(), count: jest.fn(async () => 1), delete: jest.fn((a: unknown) => ({ tabla: 'users', ...(a as object) })) },
     ...Object.fromEntries(TABLAS.map((t) => [t, { deleteMany: jest.fn((a: unknown) => ({ tabla: t, ...(a as object) })) }])),
     $transaction: jest.fn(async (ops: unknown[]) => ops),
   } as Record<string, any>;
@@ -171,6 +171,16 @@ describe('UsersService', () => {
       }
       expect(prisma.$transaction).not.toHaveBeenCalled();
       expect(multiplayer.expulsarUsuario).not.toHaveBeenCalled();
+    });
+
+    it('/users/me dice si la cuenta tiene contraseña (sin pedir nunca el hash)', async () => {
+      prisma.users.findUnique.mockResolvedValue({ id: 'u1', email: 'a@mail.com' });
+      for (const [filas, tiene] of [[1, true], [0, false]] as const) {
+        prisma.users.count.mockResolvedValueOnce(filas);
+        expect(await service.findOwn('u1')).toMatchObject({ tieneContrasena: tiene });
+      }
+      expect(prisma.users.count).toHaveBeenCalledWith({ where: { id: 'u1', password_hash: { not: null } } });
+      expect(prisma.users.findUnique.mock.calls[0][0].select).not.toHaveProperty('password_hash');
     });
 
     it('si el usuario ya no existe → 401 (nunca 500)', async () => {

@@ -145,6 +145,7 @@ prisma/
 
 Lo exige Google Play (si la app deja crear cuentas, tiene que dejar borrarlas). **Sin migración**: se borra en orden.
 - Sólo la cuenta del token (no hay `DELETE /users/:id`). Límite: 5 por minuto por IP. 200 `{ borrada: true }`.
+- `GET /users/me` devuelve `tieneContrasena` (se pregunta con un `count` aparte: el hash nunca sale) para que la app sepa qué pedir.
 - Confirmación (`BorrarCuentaDto`): si tiene `password_hash`, `{ password }` con bcrypt (mal → 401 "La contraseña no es
   correcta."; sin mandarla → 400). Si entró sólo con Google (sin contraseña), `{ confirmacion }` = su nombre de usuario,
   sin importar mayúsculas ni espacios (si no → 400). Nunca se loguea lo que manda.

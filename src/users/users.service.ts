@@ -81,6 +81,9 @@ export class UsersService {
     })
     if (!user) throw new NotFoundException('Usuario no encontrado')
     const { terms_version, ...perfil } = user
+    // Para "Borrar mi cuenta": si confirma con la contraseña o (entró sólo con Google) con su nombre de usuario.
+    // Se pregunta aparte para no traer nunca el hash.
+    const tieneContrasena = (await this.prisma.users.count({ where: { id, password_hash: { not: null } } })) > 0
     return {
       ...perfil,
       // isAdmin: el frontend muestra el botón del panel. Igual el backend lo vuelve a controlar en /admin.
@@ -89,6 +92,7 @@ export class UsersService {
       terminosPendientes: terminosPendientes(terms_version),
       // La versión que hay que aceptar (el frontend la manda tal cual a POST /users/me/aceptar-terminos)
       terminosVersion: TERMS_VERSION,
+      tieneContrasena,
     }
   }
 

@@ -840,6 +840,7 @@ describe('Borrar la cuenta', () => {
   it('contraseña mal (o sin contraseña, o datos raros) no borra nada; nunca 500', async () => {
     const c = await nueva('c');
     await http().post('/ahorcado').set(con(c)).send({ dificultad: 'facil' }).expect(201);
+    expect((await http().get('/users/me').set(con(c)).expect(200)).body.tieneContrasena).toBe(true);
     const antes = await filasDe(c.id);
     expect((await http().delete('/users/me').set(con(c)).send({ password: 'otra-cosa' })).status).toBe(401);
     for (const body of [{}, { password: '' }, { confirmacion: c.username }, { password: 123 }, { password: 'x'.repeat(10_000) }, [1, 2]]) {
@@ -856,7 +857,7 @@ describe('Borrar la cuenta', () => {
       data: { username, email: `${username}@correo-e2e.com.ar`, google_id: `google-${username}`, password_hash: null, profile: { create: {} } },
     });
     const token = app.get(JwtService, { strict: false }).sign({ sub: g.id, email: g.email, username });
-    await http().get('/users/me').set(con({ token })).expect(200);
+    expect((await http().get('/users/me').set(con({ token })).expect(200)).body.tieneContrasena).toBe(false);
     for (const body of [{}, { confirmacion: `${username}x` }, { password: 'cualquiera' }]) {
       expect((await http().delete('/users/me').set(con({ token })).send(body)).status).toBe(400);
     }
