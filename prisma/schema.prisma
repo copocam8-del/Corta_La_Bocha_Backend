@@ -24,6 +24,9 @@ model users {
   google_id     String?   @unique @db.VarChar(255)
   is_guest      Boolean   @default(false)
   created_at    DateTime  @default(now()) @db.Timestamp(6)
+  // Términos y Política de privacidad: cuándo los aceptó y qué versión (src/legal/terminos.ts → TERMS_VERSION)
+  terms_accepted_at DateTime? @db.Timestamp(6)
+  terms_version     String?   @db.VarChar(20)
 
   profile         profiles?
   room_players    room_players[]

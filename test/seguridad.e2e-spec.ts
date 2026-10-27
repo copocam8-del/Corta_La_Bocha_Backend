@@ -21,6 +21,7 @@ import { TEMATICAS, DIFICULTADES } from '../src/solo-matches/solo-quick';
 import { TEMATICAS_SOPA } from '../src/sopa/sopa-rules';
 import { TEMAS_MEMOTEST } from '../src/memotest/memotest-rules';
 import { PrismaService } from '../src/prisma/prisma.service';
+import { TERMS_VERSION } from '../src/legal/terminos';
 
 jest.setTimeout(120_000);
 
@@ -32,6 +33,7 @@ const A = {
   name: `NombreSecretoA${RUN}`,
   lastName: `ApellidoSecretoA${RUN}`,
   birthDate: '1990-03-17',
+  aceptaTerminos: true,
 };
 const B = {
   email: `b-${RUN}@correo-e2e.com.ar`,
@@ -40,6 +42,7 @@ const B = {
   name: `NombreSecretoB${RUN}`,
   lastName: `ApellidoSecretoB${RUN}`,
   birthDate: '1991-11-29',
+  aceptaTerminos: true,
 };
 // A es admin: así también se prueban los endpoints de /admin con payloads raros
 process.env.ADMIN_EMAILS = A.email;
@@ -280,7 +283,8 @@ const RAROS: unknown[] = [
 type Caso = { metodo: 'post' | 'put'; url: () => string; auth?: 'A' | 'B'; body: Record<string, unknown>; permitir503?: boolean };
 let partidaA: Record<string, string> = {};
 const CASOS: Caso[] = [
-  { metodo: 'post', url: () => '/auth/register', body: { username: 'zz_raro', name: 'N', lastName: 'L', birthDate: '1990-01-01', country: 'AR', email: 'raro@correo-e2e.com.ar', password: 'gambeta-de-potrero', captchaToken: 't' } },
+  { metodo: 'post', url: () => '/auth/register', body: { username: 'zz_raro', name: 'N', lastName: 'L', birthDate: '1990-01-01', country: 'AR', email: 'raro@correo-e2e.com.ar', password: 'gambeta-de-potrero', captchaToken: 't', aceptaTerminos: true } },
+  { metodo: 'post', url: () => '/users/me/aceptar-terminos', auth: 'B', body: { version: TERMS_VERSION } },
   { metodo: 'post', url: () => '/auth/login', body: { email: 'nadie@correo-e2e.com.ar', password: 'x' } },
   { metodo: 'post', url: () => '/auth/google', body: { credential: 'x' }, permitir503: true },
   { metodo: 'post', url: () => '/auth/forgot-password', body: { email: 'nadie@correo-e2e.com.ar' } },
@@ -371,7 +375,7 @@ describe('Payloads raros por HTTP: nunca 500', () => {
 
   it('query strings raros (repetidos, gigantes, con corchetes) → nunca 500', async () => {
     const queries = ['period=a&period=b', `period=${'x'.repeat(5000)}`, 'period[x]=1', 'game=a&game=b', 'game[]=x', 'periodo=a&periodo=b', 'periodo[x]=1', `periodo=${'x'.repeat(5000)}`, 'advanced=a&advanced=b', 'advanced[x]=1'];
-    const urls = ['/users/ranking', '/users/me/ranking', '/categories', '/admin/usuarios', '/admin/partidas', '/admin/ia', '/admin/contenido'];
+    const urls = ['/users/ranking', '/users/me/ranking', '/categories', '/admin/usuarios', '/admin/partidas', '/admin/ia', '/admin/contenido', '/admin/nombres'];
     const fallas: string[] = [];
     for (const url of urls) {
       for (const q of queries) {
@@ -570,6 +574,8 @@ describe('Payloads raros por Socket.IO: siempre { ok }, nunca se cae', () => {
         const turno = socketDe(ultimo(a).view!.turno!);
         n++;
         const llego = enTodos((e) => (e.view?.pistas?.length ?? 0) >= n);
+        // Filtro de malas palabras: una pista ofensiva se rechaza y el turno sigue siendo suyo
+        expect(await emitir(turno, 'game:action', { code, type: 'pista', payload: { pista: 'p.u.t.o' } })).toEqual({ ok: false, error: 'Esa pista no está permitida.' });
         expect(await emitir(turno, 'game:action', { code, type: 'pista', payload: { pista: `pista ${n}` } })).toEqual({ ok: true });
         await llego;
       }
@@ -590,6 +596,7 @@ describe('Payloads raros por Socket.IO: siempre { ok }, nunca se cae', () => {
       // Hasta acá, NINGÚN estado que recibió el impostor tuvo la palabra
       for (const e of estados.get(impostor)!) expect(JSON.stringify(e).toLowerCase()).not.toContain(palabra.toLowerCase());
       const fin = enTodos((e) => e.phase === 'finished');
+      expect(await emitir(impostor, 'game:action', { code, type: 'adivinar', payload: { respuesta: 'pelotudo' } })).toEqual({ ok: false, error: 'Esa respuesta no está permitida.' });
       expect(await emitir(impostor, 'game:action', { code, type: 'adivinar', payload: { respuesta: 'zzz' } })).toEqual({ ok: true });
       await fin;
       for (const s of sockets) await emitir(s, 'room:leave', { code });
@@ -617,6 +624,148 @@ describe('Payloads raros por Socket.IO: siempre { ok }, nunca se cae', () => {
     }
     await http().get('/games').expect(200);
     expect((await emitir(a, 'queue:leave')).ok).toBe(true);
+  });
+});
+
+// ─────────────────────────── 4b. Filtro de malas palabras (src/moderacion/) ───────────────────────────
+
+describe('Filtro de malas palabras: siempre 4xx o { ok: false }, nunca 500', () => {
+  const nuevo = (extra: Record<string, unknown>) => ({
+    email: `f-${Math.random().toString(36).slice(2, 10)}-${RUN}@correo-e2e.com.ar`,
+    password: 'gambeta-de-potrero-F',
+    birthDate: '1995-05-05',
+    aceptaTerminos: true,
+    ...extra,
+  });
+
+  it('registro: usuario ofensivo o reservado, nombre y apellido ofensivos → 400 con el mensaje', async () => {
+    for (const username of ['puto_10', 'p3l0tud0', 'puuuto', 'admin', 'soporte_clb', 'cortalabocha']) {
+      const res = await http().post('/auth/register').send(nuevo({ username }));
+      expect([username, res.status, res.body.errors?.username]).toEqual([username, 400, ['Ese nombre de usuario no está permitido. Elegí otro.']]);
+    }
+    const res = await http().post('/auth/register').send(nuevo({ name: 'Boludo', lastName: 'Mierda' })).expect(400);
+    expect(res.body.errors).toEqual({ name: ['Ese nombre no está permitido. Elegí otro.'], lastName: ['Ese apellido no está permitido. Elegí otro.'] });
+  });
+
+  it('registro sin usuario: si el generado sería reservado, queda "jugador" + números', async () => {
+    const res = await http().post('/auth/register').send(nuevo({ name: 'Admin' })).expect(201);
+    expect(res.body.username).toMatch(/^jugador\d{4}\d*$/);
+  });
+
+  it('PUT /users/me: usuario, nombre y textos públicos ofensivos → 400; los normales pasan', async () => {
+    const res = await http()
+      .put('/users/me')
+      .set(as('B'))
+      .send({ username: 'moderador', first_name: 'Trolo', bio: 'sos un f.u.c.k', favorite_team: 'Negro villero', favorite_player: 'h1j0 d3 put4' })
+      .expect(400);
+    expect(res.body.errors).toEqual({
+      username: ['Ese nombre de usuario no está permitido. Elegí otro.'],
+      first_name: ['Ese nombre no está permitido. Elegí otro.'],
+      bio: ['Ese texto no está permitido.'],
+      favorite_team: ['Ese texto no está permitido.'],
+      favorite_player: ['Ese texto no está permitido.'],
+    });
+    await http().put('/users/me').set(as('B')).send({ bio: 'Fan de la computadora y del pollo', favorite_team: 'Scunthorpe United' }).expect(200);
+  });
+
+  it('validate-round: una respuesta ofensiva no vale (sin IA) y no da 500', async () => {
+    const res = await http()
+      .post('/tutti-frutti/validate-round')
+      .set(as('A'))
+      .send({ roundLetter: 'P', answers: [{ category: 'Jugador', answer: 'P.u.t.o' }] })
+      .expect(200);
+    expect(res.body.results[0]).toMatchObject({ status: 'invalid', isValid: false, reason: 'Esa respuesta no está permitida.' });
+  });
+
+  it('Tutti Frutti multijugador: los demás ven "***" y el que la escribió ve la suya', async () => {
+    type Celda = { userId: string; answer: string | null; status: string };
+    type Estado = { phase?: string; round?: { letter: string | null; categories: string[] } | null; history?: { categories: { category: string; entries: Celda[] }[] }[] };
+    const a = await conectar('A');
+    const b = await conectar('B');
+    try {
+      const code = (await http().post('/rooms').set(as('A')).send({ game: 'tutti_frutti', rounds: 1, seconds: 30 }).expect(201)).body.code;
+      expect((await emitir(a, 'room:join', { code })).ok).toBe(true);
+      expect((await emitir(b, 'room:join', { code })).ok).toBe(true);
+      const jugando = esperarEstado(a, (e) => e.phase === 'playing') as Promise<Estado>;
+      expect(await emitir(a, 'room:start', { code })).toEqual({ ok: true });
+      const { round } = await jugando;
+      const respuestas = Object.fromEntries(round!.categories.map((c, i) => [c, i === 0 ? 'P.u.t.o' : `${round!.letter}algo`]));
+      const finA = esperarEstado(a, (e) => e.phase === 'finished') as Promise<Estado>;
+      const finB = esperarEstado(b, (e) => e.phase === 'finished') as Promise<Estado>;
+      expect(await emitir(a, 'round:basta', { code, answers: respuestas })).toEqual({ ok: true });
+      await emitir(b, 'round:answers', { code, answers: {}, final: true });
+      const celda = (e: Estado) => e.history!.at(-1)!.categories[0].entries.find((x) => x.userId === ids.A)!;
+      expect(celda(await finB)).toMatchObject({ answer: '***', status: 'invalid' });
+      expect(celda(await finA)).toMatchObject({ answer: 'P.u.t.o', status: 'invalid' });
+    } finally {
+      a.disconnect();
+      b.disconnect();
+    }
+  });
+
+  it('panel de admin: lista los usuarios existentes con un nombre que no pasa el filtro (y no los cambia)', async () => {
+    const prisma = app.get(PrismaService);
+    const viejo = `puto_${RUN}`.slice(0, 30); // como si se hubiera registrado antes del filtro
+    await prisma.users.create({ data: { username: viejo, email: `viejo-${RUN}@correo-e2e.com.ar`, password_hash: null, profile: { create: {} } } });
+    const res = await http().get('/admin/nombres').set(as('A')).expect(200);
+    expect(res.body.nombres).toEqual(expect.arrayContaining([expect.objectContaining({ username: viejo, motivo: 'ofensivo' })]));
+    expect(res.body.nombres.find((n: { username: string }) => n.username === A.username)).toBeUndefined();
+    expect(await prisma.users.findFirst({ where: { username: viejo } })).not.toBeNull();
+    await http().get('/admin/nombres').set(as('B')).expect(404);
+  });
+});
+
+// ───────────────────────────── Términos y Política de privacidad ─────────────────────────────
+
+describe('Términos y Política de privacidad', () => {
+  const prisma = () => app.get(PrismaService);
+  const registrar = (extra: Record<string, unknown>) =>
+    http().post('/auth/register').send({
+      email: `t-${Math.random().toString(36).slice(2, 10)}-${RUN}@correo-e2e.com.ar`,
+      password: 'gambeta-de-potrero-T',
+      birthDate: '1994-04-04',
+      ...extra,
+    });
+
+  it('el registro sin aceptar (sin el campo, false o texto) → 400 con el mensaje y no crea la cuenta', async () => {
+    for (const extra of [{}, { aceptaTerminos: false }, { aceptaTerminos: 'true' }]) {
+      const email = `sin-${Math.random().toString(36).slice(2, 10)}-${RUN}@correo-e2e.com.ar`;
+      const res = await registrar({ ...extra, email }).expect(400);
+      expect(res.body.errors.aceptaTerminos).toEqual(['Tenés que aceptar los Términos y la Política de privacidad.']);
+      expect(await prisma().users.count({ where: { email } })).toBe(0);
+    }
+  });
+
+  it('el registro guarda la fecha (del servidor) y la versión; /users/me no los tiene pendientes', async () => {
+    const antes = Date.now();
+    const reg = await registrar({ aceptaTerminos: true }).expect(201);
+    const fila = await prisma().users.findUnique({ where: { id: reg.body.userId }, select: { terms_accepted_at: true, terms_version: true } });
+    expect(fila!.terms_version).toBe(TERMS_VERSION);
+    expect(fila!.terms_accepted_at!.getTime()).toBeGreaterThanOrEqual(antes - 1000);
+    const yo = await http().get('/users/me').set(as('A')).expect(200);
+    expect(yo.body.terminosPendientes).toBe(false);
+    expect(yo.body).not.toHaveProperty('terms_version');
+  });
+
+  it('un usuario de antes (o de Google) queda pendiente hasta aceptar la versión vigente; sólo acepta por sí mismo', async () => {
+    // Como los usuarios que ya existían: sin versión aceptada
+    await prisma().users.update({ where: { id: ids.B }, data: { terms_version: null, terms_accepted_at: null } });
+    expect((await http().get('/users/me').set(as('B')).expect(200)).body.terminosPendientes).toBe(true);
+
+    // Versión vieja o rara → 400 y sigue pendiente
+    await http().post('/users/me/aceptar-terminos').set(as('B')).send({ version: '2020-01-01' }).expect(400);
+    await http().post('/users/me/aceptar-terminos').set(as('B')).send({}).expect(400);
+    // Sin sesión → 401
+    await http().post('/users/me/aceptar-terminos').send({ version: TERMS_VERSION }).expect(401);
+    expect((await http().get('/users/me').set(as('B')).expect(200)).body.terminosPendientes).toBe(true);
+
+    // A acepta: B sigue pendiente (no hay forma de aceptar por otro)
+    await http().post('/users/me/aceptar-terminos').set(as('A')).send({ version: TERMS_VERSION, userId: ids.B }).expect(200);
+    expect((await http().get('/users/me').set(as('B')).expect(200)).body.terminosPendientes).toBe(true);
+
+    const res = await http().post('/users/me/aceptar-terminos').set(as('B')).send({ version: TERMS_VERSION }).expect(200);
+    expect(res.body).toMatchObject({ terminosPendientes: false, version: TERMS_VERSION });
+    expect((await http().get('/users/me').set(as('B')).expect(200)).body.terminosPendientes).toBe(false);
   });
 });
 

@@ -80,8 +80,10 @@ src/
     dto/common-passwords.ts / dto/disposable-domains.ts   listas propias (sin dependencias)
     email-attempt-limiter.ts  límite de intentos por email (login y forgot-password)
     turnstile.service.ts      captcha de Cloudflare en el registro (opcional)
-  users/               perfil (/users/me)
+  users/               perfil (/users/me) y aceptar los Términos (/users/me/aceptar-terminos)
+  legal/terminos.ts    TERMS_VERSION: versión vigente de los Términos y la Política de privacidad
   admin/               panel de administración del equipo (sólo lectura, ADMIN_EMAILS)
+  moderacion/          filtro de malas palabras (palabras.ts + filtro.ts, copia exacta en el frontend) y validadores.ts
   rooms/               salas multijugador + gateway Socket.IO (motor común en game-engine.ts)
     modes/             un "modo" por juego: tutti-frutti, ahorcado, trivia, sopa, memotest, impostor (index.ts = registro)
   impostor/            El Impostor: banco de palabras, reglas y POST /impostor/local ("En persona")
@@ -106,6 +108,9 @@ prisma/
   `app.setup.ts` tiene `trust proxy` para que Render pase la IP real.
 - Además, **por email** (`EmailAttemptLimiter`, en memoria): 5 logins fallidos cada 15 min (uno correcto limpia
   el contador) y 5 pedidos de `forgot-password` cada 15 min → 429. Cuenta igual exista o no la cuenta.
+- Registro: exige `aceptaTerminos: true` (sin el campo, `false` o `"true"` como texto → 400
+  `errors.aceptaTerminos: ['Tenés que aceptar los Términos y la Política de privacidad.']`) y guarda cuándo (`new Date()`
+  del servidor) y qué versión aceptó. Ver "Términos y Política de privacidad".
 - Registro: rechaza contraseñas de la lista de las más comunes (sin mayúsculas, también en `reset-password`; el
   login no, por las cuentas viejas) y mails de dominios descartables (también subdominios). Con
   `TURNSTILE_SECRET_KEY` exige `captchaToken` (ver "Seguridad").
@@ -119,6 +124,22 @@ prisma/
 - No hay `ValidationPipe` global: sólo `/auth` valida los DTO (decisión a propósito, para no romper
   los otros módulos). En los DTO de auth, los decoradores se evalúan de abajo hacia arriba y se muestra
   sólo el primer error, así que la regla más básica (vacío / tipo) va pegada a la propiedad.
+
+## Términos y Política de privacidad (quién aceptó)
+
+- `users.terms_accepted_at` (TIMESTAMP) y `users.terms_version` (VARCHAR 20), las dos opcionales (migración
+  `20261027120000_aceptar_terminos`; **no está aplicada en producción**: se aplica a mano, con backup antes). Los usuarios que
+  ya existían quedan con `terms_version = NULL`.
+- `TERMS_VERSION` en `src/legal/terminos.ts` (hoy `'2026-10-27'`, igual que `LEGAL_LAST_UPDATE` del frontend). **Si cambian
+  los Términos o la Política (y el cambio es importante), se sube**: todos quedan pendientes y la app les pide aceptar de nuevo.
+- `GET /users/me` devuelve `terminosPendientes: true` si `terms_version` no es la vigente (nunca aceptó: usuarios de antes y
+  los que entran con Google; o aceptó una vieja) y `terminosVersion` (la vigente). No devuelve las columnas crudas.
+- `POST /users/me/aceptar-terminos {version}` (200): sólo el usuario del token (no hay forma de aceptar por otro); si
+  `version` no es la vigente → 400 ("Esa no es la versión vigente…"; sin el campo o no texto → 400 por campo). Guarda la
+  fecha del servidor y la versión. Límite: 10 por minuto por IP (como el login).
+- Login con Google: no cambia; el usuario nuevo queda pendiente hasta aceptar en la app.
+- El backend **no** frena los juegos si faltan aceptar: lo hace el frontend (`ProtectedRoute` no muestra ninguna pantalla
+  privada hasta aceptar). Tests en `auth.*.spec.ts`, `users.*.spec.ts` y el bloque "Términos" del e2e de seguridad.
 
 ## Perfil, estadísticas y ranking
 
@@ -273,7 +294,7 @@ prisma/
 
 - Catálogo en `src/games/games.ts` (`GET /games`, público): `tutti_frutti`, `ahorcado`, `trivia`, `trivia_diaria`,
   `sopa_de_letras`, `memotest`, `impostor`. **Nunca cambies el id de un juego** (queda en la base). `available: false` = "Próximamente"
-  (El Impostor sigue así hasta que el equipo lo pruebe: el backend igual deja crear salas, el frontend sólo esconde la tarjeta).
+  (el backend igual deja crear salas: el frontend sólo esconde la tarjeta). El Impostor se lanzó el 26/10/2026.
 - `matches.game` dice de qué juego es cada partida y `matches.state` (JSON) guarda el estado que sólo conoce el
   servidor (palabra, respuestas correctas…). **Nunca mandes `state` entero al navegador.**
 - `game_stats`: estadísticas por usuario y juego (partidas, ganadas, puntos, mejor puntaje, rachas). Los totales
@@ -423,6 +444,43 @@ Dos modos: **Online** (salas por Socket.IO, lo de abajo) y **En persona** (un so
   Sin configurar no manda nada y lo avisa en el log; **fuera de producción el link se imprime en la consola**
   (nunca en producción). `FRONTEND_URL` arma el link (`/restablecer-contrasena?token=…`).
 
+## Filtro de malas palabras (`src/moderacion/`)
+
+Todo texto que escribe un usuario y ven otros pasa por el filtro. **Decide el backend**; el frontend sólo avisa antes.
+
+- `palabras.ts`: lista propia, sin dependencias (español rioplatense e inglés: insultos, discriminatorios —racistas,
+  homofóbicos, xenófobos, contra personas con discapacidad— y contenido sexual). Tres listas con reglas distintas:
+  `PALABRAS_PROHIBIDAS` (palabra **entera**, 215), `RAICES_PROHIBIDAS` (adentro de una palabra, 32) y
+  `FRASES_PROHIBIDAS` (en todo el texto junto, 22). Más `RESERVADOS` / `RESERVADOS_ADENTRO` / `RESERVADOS_AL_BORDE`
+  (nombres que se hacen pasar por el equipo: admin, moderador, mod, soporte, staff, oficial, cortalabocha, clb…).
+  Cómo agregar una palabra está explicado arriba de todo en el archivo.
+- `filtro.ts`: `contieneOfensivo(texto)` y `esNombreReservado(usuario)` (`usuarioPermitido` = las dos). Normaliza antes
+  de comparar: minúsculas, sin tildes, leetspeak (0→o, 1→i y 1→l, 3→e, 4→a, 5→s, 7→t, @→a, $→s; también lee los
+  números como separadores: "puto123"), letras estiradas ("puuuto"; 2 consonantes iguales NO cuentan: "penne" ≠ "pene")
+  y separadores ("p.u.t.o", "p u t o", "p_u_t_o"). Plural y prefijos pegados ("putos", "reputa", "lapija") se prueban
+  solos. Las raíces y frases respetan las letras dobles ("nigger" no bloquea "Nigeria").
+- **Falsos positivos**: palabras cortas siempre enteras ("Computadora", "Disputa", "Concha Acayaguá" pasan).
+  `moderacion.spec.ts` corre el filtro contra **todos los bancos** (máquina, Impostor, ahorcado, trivia, sopa, memotest,
+  temáticas): si agregás una palabra que bloquea una respuesta real, el test lo dice. Ya se sacaron por eso "moron"
+  (Deportivo Morón), "xxx" y "kkk" ("kkkk" es risa en portugués), y no se incluyen "gil", "negro", "mono", "concha",
+  "dick" (Dick Advocaat), "ano" ("año" sin tilde) ni "anal" ("anales").
+- **Copia exacta en el frontend** (`src/moderacion/palabras.ts` y `filtro.ts`): el test compara los dos archivos.
+  **Si cambiás algo, copialo igual en el otro repo.** Por eso no importan nada de Nest.
+- Dónde se aplica:
+  - Registro y `PUT /users/me` (decoradores `UsuarioPermitido` / `TextoPermitido` de `validadores.ts`, arriba de todo
+    en el DTO): usuario → 400 "Ese nombre de usuario no está permitido. Elegí otro."; nombre/apellido → "Ese nombre
+    (apellido) no está permitido. Elegí otro."; país (registro), bio y equipo/selección/jugador favorito → "Ese texto no
+    está permitido.".
+  - Usuario generado solo (registro sin usuario y login con Google, `generateUniqueUsername`): si no pasa, "jugador" + 4 números.
+  - Tutti Frutti (solo, multijugador y `validate-round`): en `precheckAnswer`, antes de la IA → `invalid` ("No vale",
+    motivo "Esa respuesta no está permitida."), **no se manda a la IA**. En el multijugador cada celda trae
+    `ofensiva` y `view` la tapa con "***" para los demás (el que la escribió ve la suya). En la base queda lo que escribió.
+  - El Impostor online: pista → `{ ok: false, error: 'Esa pista no está permitida.' }` (a todos, también al impostor:
+    ninguna palabra del banco es ofensiva, así que no le da información); adivinanza → "Esa respuesta no está
+    permitida." y **no gasta el intento**.
+  - No hay más textos libres que vean otros: salas, ranking y resultados muestran usuarios (ya filtrados) o datos de listas fijas.
+- Usuarios que ya existían: el panel de admin los lista en "Nombres a revisar" (`GET /admin/nombres`); nada se cambia solo.
+
 ## Panel de administración (`src/admin/`, sólo lectura)
 
 - **Acceso lo decide el backend**: `ADMIN_EMAILS` (mails separados por coma, en minúsculas). `AdminGuard` busca el email
@@ -430,7 +488,9 @@ Dos modos: **Online** (salas por Socket.IO, lo de abajo) y **En persona** (un so
   `AuthGuard('jwt')` (sin sesión 401) → `AdminGuard` (no admin o sin variable → **404 igual al de una ruta que no
   existe**, para no revelar el panel). `GET /users/me` devuelve `isAdmin` (sólo para mostrar el botón).
 - Endpoints (todos GET, `?periodo=hoy|7d|30d|todo`, por defecto `7d`; "hoy" y los días en hora argentina, 7 y 30 días
-  cuentan hoy): `/admin/usuarios`, `/admin/partidas`, `/admin/ia`, `/admin/contenido`.
+  cuentan hoy): `/admin/usuarios`, `/admin/partidas`, `/admin/ia`, `/admin/contenido`. Además `/admin/nombres` (sin
+  período): usuarios existentes cuyo nombre no pasaría el filtro de malas palabras (`{ revisados, nombres: [{ username,
+  creado, motivo: 'ofensivo'|'reservado' }] }`). Lee todos los nombres en una consulta y filtra en código.
 - **Nunca** devuelve contraseñas, hashes, tokens, fechas de nacimiento, id de Google ni claves de la IA. De los usuarios:
   usuario, fecha de alta y si entró con Google; el email sólo en los últimos 20 registros. Un test lo controla.
 - Todo se calcula en la base: una consulta SQL por dato (`AdminService`, cada una con un comentario `/* admin:… */`;
@@ -467,7 +527,7 @@ Checklist pre-producción (rama `feat/seguridad`, octubre 2026). ✅ hecho · �
 | 2 | Contraseñas comunes | ✅ | `dto/common-passwords.ts`: las 1000 más usadas de SecLists con 8–72 caracteres + algunas argentinas ("argentina10", "bocajuniors"…). Registro y `reset-password` → 400 "Esa contraseña es muy común…". Copia idéntica en el frontend |
 | 3 | Límite por email | ✅ | `email-attempt-limiter.ts` (ver "Auth"). En memoria: con varias instancias habría que pasarlo a Redis |
 | 4 | Mails descartables | ✅ | `dto/disposable-domains.ts` (~9900 dominios de `disposable-email-domains`, copiada el 14/10/2026). Un test controla que gmail/hotmail/outlook/fibertel/etc. nunca queden bloqueados |
-| 5 | Captcha Turnstile | ⚠️ | `turnstile.service.ts`: con `TURNSTILE_SECRET_KEY`, `/auth/register` exige `captchaToken` y lo verifica con Cloudflare (timeout 8 s; 400 si es inválido, 503 si Cloudflare no responde: nunca deja pasar sin verificar). Sin la variable, se saltea y lo avisa en el log. Nunca se loguean el token ni la clave. **Falta crear el widget y cargar las claves** |
+| 5 | Captcha Turnstile | ✅ | `turnstile.service.ts`: con `TURNSTILE_SECRET_KEY`, `/auth/register` exige `captchaToken` y lo verifica con Cloudflare (timeout 8 s; 400 si es inválido, 503 si Cloudflare no responde: nunca deja pasar sin verificar). Sin la variable, se saltea y lo avisa en el log. Nunca se loguean el token ni la clave. **Activo desde el 27/10/2026**: widget "Corta La Bocha" en Cloudflare (modo Managed, hostnames `cortalabocha.ar` y `www.cortalabocha.ar`), `TURNSTILE_SECRET_KEY` en Render y `VITE_TURNSTILE_SITE_KEY` en Vercel |
 | 6 | Aislamiento entre usuarios | ✅ | Cada juego busca la partida y compara `user_id` con el del token (404 igual a "no existe"). `test/seguridad.e2e-spec.ts` lo prueba con dos usuarios reales en solo-matches, ahorcado, trivia, sopa, memotest y desafío, y recorre `/users`, `/users/:id`, rankings, `/rooms/:code` y `room:state` buscando `password_hash`, `email`, `birth_date`, `google_id` o `first/last_name` |
 | 7 | Validación de entradas | ✅ | El e2e manda payloads raros (tipo equivocado, null, objetos, strings gigantes, arrays de 1000) a **todos** los endpoints con body/query y a **todos** los eventos de Socket.IO, también en plena partida de cada juego: nunca 500, siempre `{ ok }`. Arreglado: un body que no es objeto (`[]`) daba 500 (`authValidationPipe` ahora lo rechaza), límites de largo en `validate-round`/`solo-matches`, y `WsSafeAckInterceptor`: si un handler de Socket.IO tira una excepción, el cliente igual recibe `{ ok: false }` |
 | 8 | RLS en Supabase | ✅ | Migración `20261014120000_rls_todas_las_tablas`: `ENABLE ROW LEVEL SECURITY` en las 17 tablas de public (con `_prisma_migrations`), sin políticas. **Aplicada en producción el 2026-10-15** (con backup antes): las 17 tablas con `rowsecurity = true` y la app ve los mismos datos. Ver abajo |

@@ -1,9 +1,10 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common'
+import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common'
 import { Prisma } from '@prisma/client'
 import { PrismaService } from '../prisma/prisma.service'
 import { UpdateProfileDto } from './dto/update-profile.dto'
 import { ConfigService } from '@nestjs/config'
 import { isAdminEmail, parseAdminEmails } from '../admin/admin-access'
+import { MENSAJE_VERSION_TERMINOS, TERMS_VERSION, terminosPendientes } from '../legal/terminos'
 
 // Lo que cualquier usuario logueado puede ver de otro: sin email, fecha de nacimiento
 // ni nombre y apellido reales (puede haber menores de edad registrados).
@@ -68,11 +69,31 @@ export class UsersService {
   async findOwn(id: string) {
     const user = await this.prisma.users.findUnique({
       where: { id },
-      select: OWN_PROFILE_SELECT,
+      select: { ...OWN_PROFILE_SELECT, terms_version: true },
     })
     if (!user) throw new NotFoundException('Usuario no encontrado')
-    // isAdmin: el frontend muestra el botón del panel. Igual el backend lo vuelve a controlar en /admin.
-    return { ...user, isAdmin: isAdminEmail(user.email, parseAdminEmails(this.config.get<string>('ADMIN_EMAILS'))) }
+    const { terms_version, ...perfil } = user
+    return {
+      ...perfil,
+      // isAdmin: el frontend muestra el botón del panel. Igual el backend lo vuelve a controlar en /admin.
+      isAdmin: isAdminEmail(user.email, parseAdminEmails(this.config.get<string>('ADMIN_EMAILS'))),
+      // Nunca aceptó (usuarios de antes, o que entraron con Google) o aceptó una versión vieja: la app le pide aceptar
+      terminosPendientes: terminosPendientes(terms_version),
+      // La versión que hay que aceptar (el frontend la manda tal cual a POST /users/me/aceptar-terminos)
+      terminosVersion: TERMS_VERSION,
+    }
+  }
+
+  // El usuario del token acepta los Términos y la Política de privacidad. Sólo vale la versión vigente (si la app
+  // le mostró una vieja, que recargue). La fecha la pone el servidor.
+  async aceptarTerminos(id: string, version: string) {
+    if (version !== TERMS_VERSION) throw new BadRequestException(MENSAJE_VERSION_TERMINOS)
+    const user = await this.prisma.users.update({
+      where: { id },
+      data: { terms_accepted_at: new Date(), terms_version: TERMS_VERSION },
+      select: { terms_accepted_at: true, terms_version: true },
+    })
+    return { terminosPendientes: false, version: user.terms_version, aceptadoEn: user.terms_accepted_at }
   }
 
   async update(id: string, data: UpdateProfileDto) {

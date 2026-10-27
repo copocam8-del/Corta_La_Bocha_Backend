@@ -2,6 +2,8 @@ import { Transform } from 'class-transformer'
 import { IsIn, IsOptional, IsString, Length, Matches, MaxLength } from 'class-validator'
 import { NAME_MAX, USERNAME_MAX, USERNAME_MIN, USERNAME_REGEX } from '../../auth/dto/auth-rules'
 import { AVATAR_IDS } from '../avatars'
+import { MENSAJE_APELLIDO, MENSAJE_NOMBRE, MENSAJE_TEXTO } from '../../moderacion/filtro'
+import { TextoPermitido, UsuarioPermitido } from '../../moderacion/validadores'
 
 // Campos de texto del perfil: "" significa "borrar" (se guarda null)
 const TrimOrNull = () =>
@@ -22,20 +24,24 @@ const TrimOrIgnore = () =>
 
 // Los decoradores se evalúan de abajo hacia arriba (ver auth/dto/register.dto.ts).
 // IsOptional deja pasar null (= borrar el campo) sin validar el resto.
+// Todo lo que ven otros usuarios pasa por el filtro de malas palabras (src/moderacion/).
 export class UpdateProfileDto {
   // Mismas reglas que en el registro (RegisterDto.name / lastName)
+  @TextoPermitido(MENSAJE_NOMBRE)
   @MaxLength(NAME_MAX, { message: `El nombre puede tener hasta ${NAME_MAX} caracteres` })
   @IsString({ message: 'El nombre debe ser texto' })
   @IsOptional()
   @TrimOrIgnore()
   first_name?: string
 
+  @TextoPermitido(MENSAJE_APELLIDO)
   @MaxLength(NAME_MAX, { message: `El apellido puede tener hasta ${NAME_MAX} caracteres` })
   @IsString({ message: 'El apellido debe ser texto' })
   @IsOptional()
   @TrimOrIgnore()
   last_name?: string
 
+  @UsuarioPermitido()
   @Matches(USERNAME_REGEX, { message: 'El nombre de usuario sólo puede tener letras, números y _' })
   @Length(USERNAME_MIN, USERNAME_MAX, {
     message: `El nombre de usuario debe tener entre ${USERNAME_MIN} y ${USERNAME_MAX} caracteres`,
@@ -45,6 +51,7 @@ export class UpdateProfileDto {
   @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() || undefined : value))
   username?: string
 
+  @TextoPermitido(MENSAJE_TEXTO)
   @MaxLength(160, { message: 'La bio puede tener hasta 160 caracteres' })
   @IsString({ message: 'La bio debe ser texto' })
   @IsOptional()
@@ -55,18 +62,21 @@ export class UpdateProfileDto {
   @IsOptional()
   avatar_id?: string | null
 
+  @TextoPermitido(MENSAJE_TEXTO)
   @MaxLength(100, { message: 'El equipo favorito puede tener hasta 100 caracteres' })
   @IsString({ message: 'El equipo favorito debe ser texto' })
   @IsOptional()
   @TrimOrNull()
   favorite_team?: string | null
 
+  @TextoPermitido(MENSAJE_TEXTO)
   @MaxLength(100, { message: 'El país favorito puede tener hasta 100 caracteres' })
   @IsString({ message: 'El país favorito debe ser texto' })
   @IsOptional()
   @TrimOrNull()
   favorite_country?: string | null
 
+  @TextoPermitido(MENSAJE_TEXTO)
   @MaxLength(100, { message: 'El jugador favorito puede tener hasta 100 caracteres' })
   @IsString({ message: 'El jugador favorito debe ser texto' })
   @IsOptional()

@@ -74,12 +74,11 @@ export const GAMES: GameInfo[] = [
     hasElo: false,
   },
   {
-    // Sólo multijugador (de 3 a 8): no tiene modo solo. Todavía "Próximamente" en la pantalla de
-    // juegos: cuando esté probado, available: true.
+    // Sin modo solo: "En persona" (un solo celular) u "Online" (salas de 3 a 8). Lanzado el 26/10/2026.
     id: 'impostor',
     name: 'El Impostor',
     description: 'Todos reciben el mismo jugador menos uno. Dá pistas, votá y descubrí al impostor.',
-    available: false,
+    available: true,
     path: '/juego/impostor',
     multiplayer: true,
     hasElo: false,

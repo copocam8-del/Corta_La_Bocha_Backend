@@ -543,6 +543,26 @@ describe('El Impostor multijugador', () => {
     expect(grupo).toHaveLength(2);
   });
 
+  it('pista o adivinanza ofensiva: rechazada (a todos, también al impostor) y no gasta el turno ni el intento', async () => {
+    const { s, code, impostor, grupo } = await partida();
+    for (const mala of ['puto', 'P.E.L.O.T.U.D.O', 'm13rd4', 'la concha de tu madre']) {
+      const turno: string = view(s, 'a').turno;
+      expect(await s.engine.action(code, turno, 'pista', { pista: mala })).toEqual({ ok: false, error: 'Esa pista no está permitida.' });
+      expect(view(s, 'a').turno).toBe(turno);
+    }
+    expect(view(s, 'a').pistas).toEqual([]);
+    while (view(s, 'a').turno !== impostor) await s.engine.action(code, view(s, 'a').turno, 'pista', { pista: 'algo' });
+    expect(await s.engine.action(code, impostor, 'pista', { pista: 'boludo' })).toEqual({ ok: false, error: 'Esa pista no está permitida.' });
+    // Lo descubren: la adivinanza ofensiva tampoco vale, pero puede volver a intentar
+    await darPistas(s, code, TRES);
+    for (const u of grupo) await s.engine.action(code, u, 'voto', { userId: impostor });
+    await s.engine.action(code, impostor, 'voto', { userId: grupo[0] });
+    expect(view(s, impostor).etapa).toBe('adivinanza');
+    expect(await s.engine.action(code, impostor, 'adivinar', { respuesta: 'puuuto' })).toEqual({ ok: false, error: 'Esa respuesta no está permitida.' });
+    expect(view(s, impostor).etapa).toBe('adivinanza');
+    expect(await s.engine.action(code, impostor, 'adivinar', { respuesta: 'cualquiera' })).toEqual({ ok: true });
+  });
+
   it('si abandona el del turno, pasa al siguiente; si abandona el impostor, ganan los demás', async () => {
     const { s, code, impostor, grupo } = await partida({}, ['a', 'b', 'c', 'd']);
     const turno: string = view(s, 'a').turno;

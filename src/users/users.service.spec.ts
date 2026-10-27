@@ -1,8 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { UsersService } from './users.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { ConfigService } from '@nestjs/config';
+import { TERMS_VERSION } from '../legal/terminos';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -82,6 +83,32 @@ describe('UsersService', () => {
       expect(await service.findOwn('u1')).toMatchObject({ isAdmin: false });
       delete env.ADMIN_EMAILS;
       expect(await service.findOwn('u1')).toMatchObject({ isAdmin: false });
+    });
+  });
+
+  describe('Términos y Política de privacidad', () => {
+    it('/users/me dice terminosPendientes si nunca aceptó o aceptó una versión vieja (y no manda la columna cruda)', async () => {
+      for (const [version, pendientes] of [[null, true], ['2026-01-01', true], [TERMS_VERSION, false]] as const) {
+        prisma.users.findUnique.mockResolvedValue({ id: 'u1', email: 'a@mail.com', terms_version: version });
+        const yo = await service.findOwn('u1');
+        expect(yo).toMatchObject({ terminosPendientes: pendientes, terminosVersion: TERMS_VERSION });
+        expect(yo).not.toHaveProperty('terms_version');
+      }
+    });
+
+    it('aceptar guarda la fecha del servidor y la versión vigente, sólo para ese usuario', async () => {
+      prisma.users.update.mockResolvedValue({ terms_accepted_at: new Date(), terms_version: TERMS_VERSION });
+      const res = await service.aceptarTerminos('u1', TERMS_VERSION);
+      const arg = prisma.users.update.mock.calls[0][0];
+      expect(arg.where).toEqual({ id: 'u1' });
+      expect(arg.data.terms_version).toBe(TERMS_VERSION);
+      expect(arg.data.terms_accepted_at).toBeInstanceOf(Date);
+      expect(res).toMatchObject({ terminosPendientes: false, version: TERMS_VERSION });
+    });
+
+    it('una versión que no es la vigente → 400 y no guarda nada', async () => {
+      await expect(service.aceptarTerminos('u1', '2020-01-01')).rejects.toThrow(BadRequestException);
+      expect(prisma.users.update).not.toHaveBeenCalled();
     });
   });
 });

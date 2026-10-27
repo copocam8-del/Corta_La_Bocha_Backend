@@ -216,6 +216,23 @@ describe('ronda', () => {
     ]));
   });
 
+  it('una respuesta ofensiva: los demás la ven como "***" y el que la escribió ve la suya', async () => {
+    const s = setup();
+    const code = await salaConDos(s);
+    const L = await arrancar(s, code);
+    await s.engine.answers(code, 'b', { Jugador: 'P.u.t.o', Equipo: `${L}uno1` });
+    await s.engine.basta(code, 'a', fill(L));
+    await tick(COLLECT_MS);
+    const celda = (u: string, de: string, cat: string) =>
+      s.state(u).history.at(-1)!.categories.find((c) => c.category === cat)!.entries.find((e) => e.userId === de)!;
+    expect(celda('a', 'b', 'Jugador')).toMatchObject({ answer: '***', canonical: null, ofensiva: true });
+    expect(s.state('a').lastResult!.categories[0].entries.find((e) => e.userId === 'b')!.answer).toBe('***');
+    expect(celda('b', 'b', 'Jugador')).toMatchObject({ answer: 'P.u.t.o', ofensiva: true });
+    // Lo demás se ve normal
+    expect(celda('a', 'b', 'Equipo')).toMatchObject({ answer: `${L}uno1`, ofensiva: false });
+    expect(celda('b', 'a', 'Jugador').answer).toBe(`${L}uno0`);
+  });
+
   it('si se acaba el tiempo, corta sola, espera las respuestas en viaje y valida', async () => {
     const s = setup();
     const code = await salaConDos(s, { rounds: 3, seconds: 30 });
