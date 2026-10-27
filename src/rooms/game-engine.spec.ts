@@ -442,6 +442,91 @@ describe('desconexiones', () => {
   });
 });
 
+describe('borró su cuenta', () => {
+  const jugadores = (s: ReturnType<typeof setup>, u: string) => s.state(u).players.map((p) => p.userId);
+
+  it('en el lobby: sale de la lista y, si era el anfitrión, pasa al siguiente', async () => {
+    const s = setup();
+    const code = await salaConDos(s);
+    await s.engine.removeUser('a');
+    expect(jugadores(s, 'b')).toEqual(['b']);
+    expect(s.state('b').hostUserId).toBe('b');
+    expect(s.store.removePlayer).toHaveBeenCalledWith(expect.any(String), 'a');
+    expect(s.engine.isPlayer(code, 'a')).toBe(false);
+  });
+
+  it('si era el único, la sala se cierra', async () => {
+    const s = setup();
+    const res = await s.engine.createPrivateRoom('a', { tematica: 'general', rounds: 1, seconds: 60 });
+    if (!res.ok) throw new Error('no se creó');
+    await s.engine.join(res.code!, { userId: 'a' });
+    await s.engine.removeUser('a');
+    expect(s.store.setRoomStatus).toHaveBeenLastCalledWith(expect.any(String), 'closed');
+    expect(s.engine.snapshotFor(res.code!, 'a')).toBeNull();
+  });
+
+  it('en partida: los demás siguen (el anfitrión pasa) y al final no aparece ni se le guardan estadísticas', async () => {
+    const s = setup();
+    const code = await salaConDos(s, { rounds: 1, seconds: 60 });
+    await s.engine.join(code, { userId: 'c' });
+    const L = await arrancar(s, code);
+    await s.engine.removeUser('a');
+    expect(s.state('b').phase).toBe('playing');
+    expect(s.state('b').hostUserId).toBe('b');
+    expect(jugadores(s, 'b')).toEqual(['b', 'c']);
+    await s.engine.basta(code, 'b', fill(L));
+    await tick(COLLECT_MS);
+    const st = s.state('b');
+    expect(st.phase).toBe('finished');
+    expect(st.final!.standings.map((x) => x.userId)).toEqual(['b', 'c']);
+    const resultados = (s.store.finishMatch.mock.calls[0] as unknown[])[2] as { userId: string }[];
+    expect(resultados.map((r) => r.userId).sort()).toEqual(['b', 'c']);
+    const guardadas = (s.store.saveRound.mock.calls[0] as unknown[])[1] as { roomPlayerId: string }[];
+    expect(guardadas.some((r) => r.roomPlayerId === 'rp-a')).toBe(false);
+  });
+
+  it('si queda uno solo, la partida termina como cuando alguien se va (con los puntos del que quedó)', async () => {
+    const s = setup();
+    const code = await salaConDos(s, { rounds: 3, seconds: 30 });
+    const L = await arrancar(s, code);
+    await s.engine.basta(code, 'a', fill(L));
+    await tick(COLLECT_MS);
+    await s.engine.removeUser('b');
+    await tick(GAME_GRACE_MS);
+    const st = s.state('a');
+    expect(st.final!.reason).toBe('not_enough_players');
+    expect(st.final!.standings.map((x) => x.userId)).toEqual(['a']);
+    expect(st.final!.standings[0].points).toBeGreaterThan(0);
+  });
+
+  it('si borra la cuenta mientras la IA valida la ronda, sus respuestas no se guardan (las de los demás sí)', async () => {
+    const store = fakeStore();
+    let soltar: () => void = () => {};
+    const base = fakeValidator();
+    const validator = {
+      validateAnswers: jest.fn(async (letter: string, items: AnswerToCheck[]) => {
+        await new Promise<void>((r) => (soltar = r));
+        return base.validateAnswers(letter, items);
+      }),
+    };
+    const last = new Map<string, RoomSnapshot>();
+    const engine = new GameEngine(store, validator, { sendState: (u, st) => last.set(u, st) });
+    const s = { engine, store, validator, last, state: (u: string) => last.get(u)! };
+    const code = await salaConDos(s as unknown as ReturnType<typeof setup>, { rounds: 1, seconds: 60 });
+    await engine.join(code, { userId: 'c' });
+    const L = await arrancar(s as unknown as ReturnType<typeof setup>, code);
+    await engine.basta(code, 'a', fill(L));
+    await tick(COLLECT_MS);
+    expect(s.state('a').phase).toBe('validating');
+    await engine.removeUser('c');
+    soltar();
+    await tick(10);
+    const guardadas = (store.saveRound.mock.calls[0] as unknown[])[1] as { roomPlayerId: string }[];
+    expect(new Set(guardadas.map((r) => r.roomPlayerId))).toEqual(new Set(['rp-a', 'rp-b']));
+    expect(s.state('a').final!.standings.map((x) => x.userId)).toEqual(['a', 'b']);
+  });
+});
+
 describe('cola pública', () => {
   it('con el mínimo de jugadores espera un rato por más, arma la sala y arranca sola cuando entran', async () => {
     const s = setup();

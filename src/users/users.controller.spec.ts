@@ -8,6 +8,7 @@ import { AchievementsService } from '../achievements/achievements.service';
 import { authValidationPipe } from '../auth/auth-validation.pipe';
 import { UpdateProfileDto } from './dto/update-profile.dto';
 import { AceptarTerminosDto } from './dto/aceptar-terminos.dto';
+import { BorrarCuentaDto } from './dto/borrar-cuenta.dto';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 
 // Lista "MÉTODO ruta" de todos los endpoints del controlador, en el orden en que se declaran
@@ -33,7 +34,7 @@ async function validar(body: object) {
 }
 
 describe('UsersController', () => {
-  const usersService = { findOne: jest.fn(), findAll: jest.fn(), update: jest.fn(), aceptarTerminos: jest.fn() };
+  const usersService = { findOne: jest.fn(), findAll: jest.fn(), update: jest.fn(), aceptarTerminos: jest.fn(), borrarCuenta: jest.fn() };
   const statsService = { getUserRanking: jest.fn(), getTopPlayers: jest.fn(), getLeaderboard: jest.fn() };
   const achievementsService = { listForUser: jest.fn() };
   let controller: UsersController;
@@ -97,6 +98,25 @@ describe('UsersController', () => {
     expect(await validarVersion({ version: 20261027 })).toEqual({ version: ['La versión de los Términos no es válida'] });
     expect(await validarVersion({ version: 'x'.repeat(21) })).toEqual({ version: ['La versión de los Términos no es válida'] });
     expect(await validarVersion({ version: '2026-10-27' })).toBeNull();
+  });
+
+  it('DELETE /users/me borra sólo la cuenta del token (nunca por :id) y tiene límite de 5 por minuto', async () => {
+    await controller.borrarCuenta({ user: { userId: 'u1' } }, { password: 'x' });
+    expect(usersService.borrarCuenta).toHaveBeenCalledWith('u1', { password: 'x' });
+    expect(rutas()).toContain('DELETE me');
+    expect(rutas()).not.toContain('DELETE :id');
+    const guards = (Reflect.getMetadata('__guards__', UsersController.prototype.borrarCuenta) ?? []) as unknown[];
+    expect(guards).toContain(ThrottlerGuard);
+    expect(Reflect.getMetadata('THROTTLER:LIMITdefault', UsersController.prototype.borrarCuenta)).toBe(5);
+  });
+
+  it('borrar la cuenta: password y confirmacion son texto corto; descarta otros campos (ej. userId)', async () => {
+    const validarBorrar = (body: object) =>
+      authValidationPipe.transform(body, { type: 'body', metatype: BorrarCuentaDto }).then((dto: object) => ({ dto }), (e: BadRequestException) =>
+        ({ errors: (e.getResponse() as { errors: Record<string, string[]> }).errors }));
+    expect(await validarBorrar({ password: 123 })).toEqual({ errors: { password: ['La contraseña no es correcta.'] } });
+    expect(await validarBorrar({ confirmacion: 'x'.repeat(61) })).toEqual({ errors: { confirmacion: ['El nombre de usuario no coincide.'] } });
+    expect(await validarBorrar({ password: 'clave', userId: 'otro' })).toEqual({ dto: { password: 'clave' } });
   });
 
   it('GET /users/me/achievements usa el usuario del token', async () => {

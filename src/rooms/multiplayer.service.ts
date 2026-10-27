@@ -38,6 +38,13 @@ export class MultiplayerService {
     this.server = server;
   }
 
+  // Borró su cuenta: sale de la cola y de todas sus salas, y se cortan sus conexiones de Socket.IO
+  async expulsarUsuario(userId: string) {
+    this.queue.leave(userId);
+    await this.engine.removeUser(userId);
+    this.server?.in(`u:${userId}`).disconnectSockets(true);
+  }
+
   private emitToUser(userId: string, event: string, payload: RoomSnapshot | QueueState | { code: string }) {
     this.server?.to(`u:${userId}`).emit(event, payload);
   }

@@ -20,6 +20,7 @@ import { AdminThrottlerGuard } from '../src/admin/admin-throttler.guard';
 import { TEMATICAS, DIFICULTADES } from '../src/solo-matches/solo-quick';
 import { TEMATICAS_SOPA } from '../src/sopa/sopa-rules';
 import { TEMAS_MEMOTEST } from '../src/memotest/memotest-rules';
+import { JwtService } from '@nestjs/jwt';
 import { PrismaService } from '../src/prisma/prisma.service';
 import { TERMS_VERSION } from '../src/legal/terminos';
 
@@ -766,6 +767,208 @@ describe('Términos y Política de privacidad', () => {
     const res = await http().post('/users/me/aceptar-terminos').set(as('B')).send({ version: TERMS_VERSION }).expect(200);
     expect(res.body).toMatchObject({ terminosPendientes: false, version: TERMS_VERSION });
     expect((await http().get('/users/me').set(as('B')).expect(200)).body.terminosPendientes).toBe(false);
+  });
+});
+
+// ───────────────────────────── Borrar la cuenta (DELETE /users/me) ─────────────────────────────
+
+describe('Borrar la cuenta', () => {
+  const prisma = () => app.get(PrismaService);
+  type Cuenta = { email: string; username: string; password: string; id: string; token: string };
+  const nueva = async (letra: string): Promise<Cuenta> => {
+    const sufijo = `${letra}${Math.random().toString(36).slice(2, 7)}${RUN}`;
+    const u = { email: `${sufijo}@correo-e2e.com.ar`, username: `${letra}_${sufijo}`.slice(0, 30), password: `gambeta-${letra}-borrar`, birthDate: '1993-02-02', aceptaTerminos: true };
+    const reg = await http().post('/auth/register').send(u).expect(201);
+    const log = await http().post('/auth/login').send({ email: u.email, password: u.password }).expect(201);
+    return { ...u, id: reg.body.userId, token: log.body.access_token };
+  };
+  const con = (c: { token: string }) => ({ Authorization: `Bearer ${c.token}` });
+
+  // Cuántas filas tiene un usuario en cada tabla (las que tienen user_id, y sus respuestas por room_players)
+  async function filasDe(userId: string) {
+    const p = prisma();
+    const w = { where: { user_id: userId } };
+    return {
+      users: await p.users.count({ where: { id: userId } }),
+      profiles: await p.profiles.count(w),
+      game_stats: await p.game_stats.count(w),
+      match_results: await p.match_results.count(w),
+      user_achievements: await p.user_achievements.count(w),
+      contenido_visto: await p.contenido_visto.count(w),
+      daily_challenges: await p.daily_challenges.count(w),
+      password_resets: await p.password_resets.count(w),
+      matches: await p.matches.count(w),
+      room_players: await p.room_players.count(w),
+      votes: await p.votes.count(w),
+      answers: await p.answers.count({ where: { room_player: { user_id: userId } } }),
+    };
+  }
+  const ceros = (filas: object) => Object.fromEntries(Object.keys(filas).map((k) => [k, 0]));
+
+  // Todo lo de un usuario, para comparar antes y después (que nada de otro cambie)
+  async function todoDe(userId: string) {
+    const p = prisma();
+    const w = { where: { user_id: userId } };
+    return {
+      user: await p.users.findUnique({ where: { id: userId } }),
+      profile: await p.profiles.findUnique(w),
+      game_stats: await p.game_stats.findMany({ ...w, orderBy: { id: 'asc' } }),
+      match_results: await p.match_results.findMany({ ...w, orderBy: { id: 'asc' } }),
+      user_achievements: await p.user_achievements.findMany({ ...w, orderBy: { id: 'asc' } }),
+      room_players: await p.room_players.findMany({ ...w, orderBy: { id: 'asc' } }),
+      answers: await p.answers.findMany({ where: { room_player: { user_id: userId } }, orderBy: { id: 'asc' } }),
+    };
+  }
+
+  it('un usuario no puede borrar a otro: con la contraseña del otro 401, y no hay DELETE /users/:id', async () => {
+    const c = await nueva('c');
+    const d = await nueva('d');
+    const res = await http().delete('/users/me').set(con(c)).send({ password: d.password });
+    expect(res.status).toBe(401);
+    expect(res.body.message).toBe('La contraseña no es correcta.');
+    expect((await http().delete(`/users/${d.id}`).set(con(c)).send({ password: c.password })).status).toBe(404);
+    expect((await filasDe(d.id)).users).toBe(1);
+    expect((await filasDe(c.id)).users).toBe(1);
+    // Mandar el id del otro en el body no cambia nada: borra la del token
+    await http().delete('/users/me').set(con(c)).send({ password: c.password, userId: d.id }).expect(200);
+    expect((await filasDe(d.id)).users).toBe(1);
+    expect((await filasDe(c.id)).users).toBe(0);
+    // Sin sesión → 401
+    await http().delete('/users/me').send({ password: d.password }).expect(401);
+  });
+
+  it('contraseña mal (o sin contraseña, o datos raros) no borra nada; nunca 500', async () => {
+    const c = await nueva('c');
+    await http().post('/ahorcado').set(con(c)).send({ dificultad: 'facil' }).expect(201);
+    const antes = await filasDe(c.id);
+    expect((await http().delete('/users/me').set(con(c)).send({ password: 'otra-cosa' })).status).toBe(401);
+    for (const body of [{}, { password: '' }, { confirmacion: c.username }, { password: 123 }, { password: 'x'.repeat(10_000) }, [1, 2]]) {
+      const res = await http().delete('/users/me').set(con(c)).send(body);
+      expect({ body, status: res.status }).toEqual({ body, status: 400 });
+    }
+    expect(await filasDe(c.id)).toEqual(antes);
+    await http().get('/users/me').set(con(c)).expect(200);
+  });
+
+  it('cuenta de Google (sin contraseña): confirma con su nombre de usuario (sin importar mayúsculas)', async () => {
+    const username = `g_${Math.random().toString(36).slice(2, 7)}${RUN}`.slice(0, 30);
+    const g = await prisma().users.create({
+      data: { username, email: `${username}@correo-e2e.com.ar`, google_id: `google-${username}`, password_hash: null, profile: { create: {} } },
+    });
+    const token = app.get(JwtService, { strict: false }).sign({ sub: g.id, email: g.email, username });
+    await http().get('/users/me').set(con({ token })).expect(200);
+    for (const body of [{}, { confirmacion: `${username}x` }, { password: 'cualquiera' }]) {
+      expect((await http().delete('/users/me').set(con({ token })).send(body)).status).toBe(400);
+    }
+    expect((await filasDe(g.id)).users).toBe(1);
+    await http().delete('/users/me').set(con({ token })).send({ confirmacion: ` ${username.toUpperCase()} ` }).expect(200);
+    const despues = await filasDe(g.id);
+    expect(despues).toEqual(ceros(despues));
+    await http().get('/users/me').set(con({ token })).expect(401);
+  });
+
+  it('borra TODO lo suyo, lo saca de la sala (el otro queda de anfitrión), su token deja de andar y los datos del otro quedan intactos', async () => {
+    const c = await nueva('c');
+    const d = await nueva('d');
+    const p = prisma();
+
+    // C juega solo, la trivia y el desafío del día, cambia su perfil, pidió cambiar la contraseña y tiene logros y estadísticas
+    const tematica = Object.keys(TEMATICAS)[0];
+    await http().post('/solo-matches/quick').set(con(c)).send({ tematica, dificultad: Object.keys(DIFICULTADES)[0], tiempo: 60 }).expect(201);
+    await http().post('/trivia').set(con(c)).send({}).expect(201);
+    await http().post('/desafio-diario/empezar').set(con(c)).send({}).expect(201);
+    await http().put('/users/me').set(con(c)).send({ bio: 'Hincha de los e2e' }).expect(200);
+    await p.password_resets.create({ data: { user_id: c.id, token_hash: c.id.replace(/-/g, '').padEnd(64, '0'), expires_at: new Date(Date.now() + 3600_000) } });
+    await p.user_achievements.create({ data: { user_id: c.id, achievement_id: 'primer_partido' } });
+    await p.game_stats.upsert({
+      where: { user_id_game: { user_id: c.id, game: 'trivia' } },
+      update: {},
+      create: { user_id: c.id, game: 'trivia', matches_played: 3 },
+    });
+
+    // C (anfitrión) y D juegan una partida de Tutti Frutti y se quedan en la sala
+    const sc = await conectarConToken(c.token);
+    const sd = await conectarConToken(d.token);
+    try {
+      const code = (await http().post('/rooms').set(con(c)).send({ game: 'tutti_frutti', rounds: 1, seconds: 30 }).expect(201)).body.code;
+      expect((await emitir(sc, 'room:join', { code })).ok).toBe(true);
+      expect((await emitir(sd, 'room:join', { code })).ok).toBe(true);
+      const jugando = esperarEstado(sc, (e) => e.phase === 'playing') as Promise<{ round?: { letter: string; categories: string[] } }>;
+      expect(await emitir(sc, 'room:start', { code })).toEqual({ ok: true });
+      const { round } = await jugando;
+      const respuestas = Object.fromEntries(round!.categories.map((cat) => [cat, `${round!.letter}algo`]));
+      const fin = esperarEstado(sd, (e) => e.phase === 'finished');
+      await emitir(sc, 'round:basta', { code, answers: respuestas });
+      await emitir(sd, 'round:answers', { code, answers: respuestas, final: true });
+      await fin;
+
+      const room = await p.rooms.findUnique({ where: { room_code: code }, include: { matches: true } });
+      const partida = room!.matches[0];
+      // Si la partida no contó (la IA de prueba no validó todo), se cargan los resultados de los dos como si hubiera contado
+      for (const u of [c, d]) {
+        if (!(await p.match_results.count({ where: { match_id: partida.id, user_id: u.id } }))) {
+          await p.match_results.create({
+            data: { user_id: u.id, match_id: partida.id, game: 'tutti_frutti', mode: 'multiplayer', points: 30, won: u === d, elo_before: 1000, elo_after: 1010 },
+          });
+        }
+      }
+
+      const antes = await filasDe(c.id);
+      const conFilas = Object.entries(antes).filter(([tabla]) => tabla !== 'votes').map(([tabla, n]) => ({ tabla, hay: n > 0 }));
+      expect(conFilas).toEqual(conFilas.map(({ tabla }) => ({ tabla, hay: true })));
+      const deD = await todoDe(d.id);
+      expect(deD.answers.length).toBeGreaterThan(0);
+      expect(deD.match_results.length).toBeGreaterThan(0);
+
+      // Borra: C se desconecta y D queda en la sala, de anfitrión
+      const cortado = new Promise<void>((r) => sc.once('disconnect', () => r()));
+      const estadoD = esperarEstado(sd, (e) => {
+        const st = e as { hostUserId?: string; players?: { userId: string }[] };
+        return st.hostUserId === d.id && !st.players?.some((x) => x.userId === c.id);
+      });
+      const res = await http().delete('/users/me').set(con(c)).send({ password: c.password }).expect(200);
+      expect(res.body).toEqual({ borrada: true });
+      await cortado;
+      await estadoD;
+
+      // No queda ninguna fila suya en ninguna tabla
+      const despues = await filasDe(c.id);
+      expect(despues).toEqual(ceros(despues));
+
+      // Su token ya no sirve: 401 en todo (nunca 500), y por Socket.IO no conecta
+      const pedidos: ['get' | 'put' | 'post' | 'delete', string, object?][] = [
+        ['get', '/users/me'],
+        ['get', '/users/me/games'],
+        ['get', '/users/me/achievements'],
+        ['get', '/users/me/ranking'],
+        ['put', '/users/me', { bio: 'hola' }],
+        ['delete', '/users/me', { password: c.password }],
+        ['post', '/users/me/aceptar-terminos', { version: TERMS_VERSION }],
+        ['post', '/ahorcado', { dificultad: 'facil' }],
+        ['post', '/trivia', {}],
+        ['get', '/desafio-diario/hoy'],
+        ['post', '/rooms', { game: 'tutti_frutti' }],
+      ];
+      for (const [metodo, url, body] of pedidos) {
+        const r = await http()[metodo](url).set(con(c)).send(body);
+        expect({ metodo, url, status: r.status }).toEqual({ metodo, url, status: 401 });
+      }
+      await expect(conectarConToken(c.token)).rejects.toThrow();
+
+      // Los datos de D (con quien jugó) siguen intactos, y la partida de los dos también
+      expect(await todoDe(d.id)).toEqual(deD);
+      expect(await p.matches.findUnique({ where: { id: partida.id } })).not.toBeNull();
+      expect((await http().get('/users/me').set(con(d)).expect(200)).body.username).toBe(d.username);
+
+      // El email y el nombre de usuario quedan libres
+      await http()
+        .post('/auth/register')
+        .send({ email: c.email, username: c.username, password: c.password, birthDate: '1993-02-02', aceptaTerminos: true })
+        .expect(201);
+    } finally {
+      sc.disconnect();
+      sd.disconnect();
+    }
   });
 });
 

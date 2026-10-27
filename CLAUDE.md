@@ -128,7 +128,7 @@ prisma/
 ## Términos y Política de privacidad (quién aceptó)
 
 - `users.terms_accepted_at` (TIMESTAMP) y `users.terms_version` (VARCHAR 20), las dos opcionales (migración
-  `20261027120000_aceptar_terminos`; **no está aplicada en producción**: se aplica a mano, con backup antes). Los usuarios que
+  `20261027120000_aceptar_terminos`, **aplicada en producción el 2026-10-27**, con backup antes). Los usuarios que
   ya existían quedan con `terms_version = NULL`.
 - `TERMS_VERSION` en `src/legal/terminos.ts` (hoy `'2026-10-27'`, igual que `LEGAL_LAST_UPDATE` del frontend). **Si cambian
   los Términos o la Política (y el cambio es importante), se sube**: todos quedan pendientes y la app les pide aceptar de nuevo.
@@ -140,6 +140,27 @@ prisma/
 - Login con Google: no cambia; el usuario nuevo queda pendiente hasta aceptar en la app.
 - El backend **no** frena los juegos si faltan aceptar: lo hace el frontend (`ProtectedRoute` no muestra ninguna pantalla
   privada hasta aceptar). Tests en `auth.*.spec.ts`, `users.*.spec.ts` y el bloque "Términos" del e2e de seguridad.
+
+## Borrar la cuenta (`DELETE /users/me`)
+
+Lo exige Google Play (si la app deja crear cuentas, tiene que dejar borrarlas). **Sin migración**: se borra en orden.
+- Sólo la cuenta del token (no hay `DELETE /users/:id`). Límite: 5 por minuto por IP. 200 `{ borrada: true }`.
+- Confirmación (`BorrarCuentaDto`): si tiene `password_hash`, `{ password }` con bcrypt (mal → 401 "La contraseña no es
+  correcta."; sin mandarla → 400). Si entró sólo con Google (sin contraseña), `{ confirmacion }` = su nombre de usuario,
+  sin importar mayúsculas ni espacios (si no → 400). Nunca se loguea lo que manda.
+- `UsersService.borrarCuenta`: primero `MultiplayerService.expulsarUsuario` (sale de la cola, `GameEngine.removeUser` lo
+  saca de sus salas como cuando alguien se va —el anfitrión pasa al siguiente o la sala se cierra— y además lo quita de la
+  lista, así no queda en los resultados ni se le guardan estadísticas; después se cortan sus sockets). Después, UNA
+  transacción: `daily_challenges`, `match_results`, sus partidas solo (`matches` con su `user_id` y sin sala, con rondas y
+  respuestas en cascada), `votes`, sus `answers` multijugador, `room_players`, `user_achievements`, `game_stats`,
+  `contenido_visto`, `password_resets`, `profiles` y por último `users`. Casi todo tiene `onDelete: Cascade` desde `users`,
+  pero se borra explícito igual; la excepción es `matches.user_id` (`SetNull`): sin esto las partidas solo quedarían huérfanas.
+- Las partidas multijugador son de todos: quedan, con los resultados y puntos de los demás. En `matches.state.resultado`
+  puede quedar su id suelto (un UUID que ya no apunta a nadie).
+- Su token deja de servir: `JwtStrategy.validate` comprueba que el usuario exista (si no → 401, nunca 500). Socket.IO ya lo
+  hacía al conectar. El email y el nombre de usuario quedan libres.
+- Tests en `users.*.spec.ts`, `game-engine.spec.ts` ("borró su cuenta"), `multiplayer.service.spec.ts`,
+  `jwt.strategy.spec.ts` y el bloque "Borrar la cuenta" del e2e de seguridad.
 
 ## Perfil, estadísticas y ranking
 
