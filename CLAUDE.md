@@ -315,8 +315,8 @@ Lo exige Google Play (si la app deja crear cuentas, tiene que dejar borrarlas). 
 ## Plataforma de juegos
 
 - Catálogo en `src/games/games.ts` (`GET /games`, público): `tutti_frutti`, `ahorcado`, `trivia`, `trivia_diaria`,
-  `sopa_de_letras`, `memotest`, `impostor`. **Nunca cambies el id de un juego** (queda en la base). `available: false` = "Próximamente"
-  (el backend igual deja crear salas: el frontend sólo esconde la tarjeta). El Impostor se lanzó el 26/10/2026.
+  `sopa_de_letras`, `memotest`, `impostor`, `rosco`. **Nunca cambies el id de un juego** (queda en la base). `available: false` = "Próximamente"
+  (el backend igual deja crear salas: el frontend sólo esconde la tarjeta). El Impostor se lanzó el 26/10/2026. `rosco` (Rosco Futbolero) está como "Próximamente" desde el 28/10/2026: todavía no tiene módulo.
 - `matches.game` dice de qué juego es cada partida y `matches.state` (JSON) guarda el estado que sólo conoce el
   servidor (palabra, respuestas correctas…). **Nunca mandes `state` entero al navegador.**
 - `game_stats`: estadísticas por usuario y juego (partidas, ganadas, puntos, mejor puntaje, rachas). Los totales

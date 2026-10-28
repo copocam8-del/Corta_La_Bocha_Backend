@@ -5,7 +5,7 @@
 //      juego, ligas y logros, todo en una transacción),
 //   4. sumale 2 o 3 logros con game: '<id>' en achievements.definitions.ts.
 
-export const GAME_IDS = ['tutti_frutti', 'ahorcado', 'trivia', 'trivia_diaria', 'sopa_de_letras', 'memotest', 'impostor'] as const;
+export const GAME_IDS = ['tutti_frutti', 'ahorcado', 'trivia', 'trivia_diaria', 'sopa_de_letras', 'memotest', 'impostor', 'rosco'] as const;
 export type GameId = (typeof GAME_IDS)[number];
 
 export interface GameInfo {
@@ -81,6 +81,17 @@ export const GAMES: GameInfo[] = [
     available: true,
     path: '/juego/impostor',
     multiplayer: true,
+    hasElo: false,
+  },
+  {
+    // Próximamente (anunciado el 28/10/2026): todavía no tiene módulo ni pantalla. Cuando esté, pasar a available: true
+    // y, si tiene salas, multiplayer: true + sumarlo a MULTI_GAMES.
+    id: 'rosco',
+    name: 'Rosco Futbolero',
+    description: 'Una definición futbolera por cada letra del abecedario. Completá el rosco antes de que se acabe el tiempo.',
+    available: false,
+    path: '/rosco',
+    multiplayer: false,
     hasElo: false,
   },
 ];
